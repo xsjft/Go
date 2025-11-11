@@ -1,0 +1,43 @@
+# Unity 自动生成/缓存文件夹（核心排除）
+/Library/
+/Temp/
+/Logs/
+/DerivedData/
+/obj/
+/Build/
+/Builds/
+
+# 编译产物和日志
+Player.log
+UnityPlayer.log
+*.pidb
+*.pdb.meta
+
+# 编辑器配置文件（VS Code/IDE）
+/.vs/
+/.idea/
+/.vscode/
+*.suo
+*.user
+*.sln.docstates
+*.csproj.user
+
+# 资源源文件/备份（不上传）
+*.blend
+*.blend1
+*.psd
+*.max
+*.maya
+*.obj.bak
+*.fbx.bak
+*.tiff
+/Assets/Models/Source/  # Blender 源文件文件夹（本地保留）
+/Assets/Textures/Originals/  # 贴图原图文件夹（本地保留）
+
+# 系统/冗余文件
+*.DS_Store
+Thumbs.db
+*.zip
+*.rar
+*.7z
+*.cache
