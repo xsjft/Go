@@ -14,18 +14,46 @@ public class player : MonoBehaviour
     [SerializeField] private float ySpeed;
 
     [Header("判断点击位置")]
-    [SerializeField] private LayerMask whatIsBall;       
+    [SerializeField] private LayerMask whatIsBoard;
 
     [Header("棋子信息")]
-    [SerializeField] private GameObject Qizi_Black;
-    [SerializeField] private GameObject Qizi_White;
-    [SerializeField] private int QiziNum=0;
-    private List<GameObject> allQizi = new List<GameObject>();       //棋子对象列表
+    [SerializeField] private GameObject BlackStone;
+    [SerializeField] private GameObject WhiteStone;
+    [SerializeField] private GameObject TempStone;
+    [SerializeField] private int StoneNum=0;
+    private List<GameObject> allStone = new List<GameObject>();       //棋子对象列表
 
     [Header("轮次信息")]
     [SerializeField] int turns;       //多少轮
     [SerializeField] bool BlackTurn;    //是不是黑棋回合
 
+
+    private struct BoardPoint
+    {
+        public Vector3 pointPosition;       //棋盘交叉点坐标
+        public int stoneType;                //交叉点上棋子状态，0，1,2
+        /*
+         * 上下左右点坐标是否要记录
+         * 
+        */
+    };
+
+    private BoardPoint[,] boardPoints;        //二维数组，从某个点展开，上下左右遍历一遍，得到二维数组，落子改状态，之后dfs判断气
+
+    private struct StoneGroup
+    {
+        public BoardPoint[] points;
+        public int count_Qi;
+    }
+
+    private List<StoneGroup> WhiteStoneGroups = new List<StoneGroup>();
+    private List<StoneGroup> BlackStoneGroups = new List<StoneGroup>();
+    /*
+     * 每次落子修改相邻黑棋白棋块气的数量
+     * 每次落子，理论上只影响上下左右四个地方
+     * 提子遍历所有块？
+     * 悔棋或其他功能需要考虑
+     */
 
     void Start()
     {
@@ -67,26 +95,29 @@ public class player : MonoBehaviour
         {
             if (s == "Black") 
             { 
-              GameObject qizi = Instantiate(Qizi_Black, hit.point, Quaternion.identity, transform);   //创建棋子
-              allQizi.Add(qizi);
+              GameObject qizi = Instantiate(BlackStone, hit.point, Quaternion.identity, transform);   //创建棋子
+              allStone.Add(qizi);
             }
             else 
             {
-                GameObject qizi = Instantiate(Qizi_White, hit.point, Quaternion.identity, transform);
-                allQizi.Add(qizi);
+                GameObject qizi = Instantiate(WhiteStone, hit.point, Quaternion.identity, transform);
+                allStone.Add(qizi);
             }
 
-            QiziNum++;
+            StoneNum++;
             turns++;
             BlackTurn = !BlackTurn;
         }
     }
 
-    private void HuiQi()                //悔棋，棋子列表最后一个直接销毁就行       后面判断可能会用到数组去统计棋子在棋盘上的信息，这里也要补上相应的修改   
-    {
-        Destroy(allQizi[QiziNum - 1]);
-        allQizi.RemoveAt(QiziNum - 1);
-        QiziNum--;
+    private void HuiQi()                /*悔棋
+                                         * 如果上轮没有提子之类，直接销毁最后一个棋子
+                                         * 如果上轮触发了提子之类，还需要恢复被提的子（额外的容器记录）
+                                        */
+    { 
+        Destroy(allStone[StoneNum - 1]);
+        allStone.RemoveAt(StoneNum - 1);
+        StoneNum--;
         turns--;
         BlackTurn = !BlackTurn;
     }
@@ -98,7 +129,7 @@ public class player : MonoBehaviour
 
         RaycastHit hit;
 
-        Physics.Raycast(ray, out hit, Mathf.Infinity, whatIsBall);
+        Physics.Raycast(ray, out hit, Mathf.Infinity, whatIsBoard);
 
         return hit;
         
@@ -119,7 +150,7 @@ public class player : MonoBehaviour
 
     private bool Check_HuiQi()
     {
-        if (QiziNum > 0)
+        if (StoneNum > 0)
         {
             return true;
         }
