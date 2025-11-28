@@ -399,7 +399,7 @@ MonoBehaviour:
   StoneNum: 0
   StoneSize: {x: 0.07, y: 0.07, z: 0.07}
   turns: 0
-  BlackTurn: 0
+  BlackTurn: 1
   tmp: {fileID: 2100000, guid: 4024074b6259f5a489dfc31a4bcbd1b0, type: 2}
 --- !u!65 &1888653851
 BoxCollider:
