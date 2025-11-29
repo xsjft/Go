@@ -17,7 +17,6 @@ public class PlayerFor2D : MonoBehaviour
     [SerializeField] private GameObject WhiteStone;
     [SerializeField] private GameObject TempStone;
     [SerializeField] private int StoneNum = 0;
-    private List<GameObject> allStone = new List<GameObject>();       //棋子对象列表
     [SerializeField] private Vector3 StoneSize;
 
     [Header("轮次信息")]
@@ -140,7 +139,7 @@ public class PlayerFor2D : MonoBehaviour
             StoneNum++;
             turns++;
             BlackTurn = !BlackTurn;
-            LuoZiLogic(point);
+            LuoZiLogic(point, true);
         }
     }
 
@@ -158,7 +157,6 @@ public class PlayerFor2D : MonoBehaviour
             boardPoints[PointToNum(point)].stoneType = 2;
         }
         qizi.transform.localScale = StoneSize;
-        allStone.Add(qizi);
         PointToStone.Add(boardPoints[PointToNum(point)], qizi);
     }
 
@@ -193,7 +191,7 @@ public class PlayerFor2D : MonoBehaviour
                 Vector3 point = NumToPoint(boardPoint.me);
                 CreateStone(moveRecord.stoneType,boardPoint.targetRotation,point);
                 StoneNum++;
-                LuoZiLogic(point);
+                LuoZiLogic(point,false);
             }
         }
 
@@ -204,7 +202,7 @@ public class PlayerFor2D : MonoBehaviour
                 Vector3 point = NumToPoint(boardPoint.me);
                 CreateStone(moveRecord.stoneType%2+1, boardPoint.targetRotation, point);
                 StoneNum++;
-                LuoZiLogic(point);
+                LuoZiLogic(point, false);
             }
         }
 
@@ -360,7 +358,7 @@ public class PlayerFor2D : MonoBehaviour
     }     //对单个方向判断
 
 
-    private void LuoZiLogic(Vector3 point)
+    private void LuoZiLogic(Vector3 point ,bool record)
     {
         BoardPoint boardPoint = boardPoints[PointToNum(point)]; //首先自立为group，并记录在哈希表
         StoneGroup stoneGroup = new StoneGroup(boardPoint);
@@ -400,6 +398,7 @@ public class PlayerFor2D : MonoBehaviour
             LastMove.boardPoints.Add(boardpoint);
         }
 
+        if(record)
         MoveRecords.Add(LastMove);                              //加到记录中
     }
 
