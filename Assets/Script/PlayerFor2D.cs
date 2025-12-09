@@ -25,6 +25,8 @@ public class PlayerFor2D : MonoBehaviour
 
     [SerializeField] private Material tmp;
 
+    [SerializeField] private List<bool> moveIsPass = new List<bool>(); //是否弃权
+
 
     private class BoardPoint
     {
@@ -78,6 +80,9 @@ public class PlayerFor2D : MonoBehaviour
         public List<StoneGroup> stoneGroups;      //被移出的groups  
         public List<BoardPoint> boardPoints;       //落点形成的group包含的所有点
 
+        // 新增：该步之后的完整局面
+        public string boardState;  
+
         public MoveRecord(int stoneType,BoardPoint boardPoint)
         {
             this.stoneType = stoneType;
@@ -90,10 +95,38 @@ public class PlayerFor2D : MonoBehaviour
     private MoveRecord LastMove;
     private List<MoveRecord> MoveRecords;
 
+    // 棋盘历史（所有走过的局面，用于超级劫判定）
+    private HashSet<string> boardHistory;
+    // 初始空棋盘局面（方便悔棋后重建）
+    private string initialBoardState;
+
+        public enum GameResult
+    {
+        None,
+        BlackWin,
+        WhiteWin,
+        Draw
+    }
+
+    [Header("胜负信息")]
+    [SerializeField] private GameResult gameResult = GameResult.None;
+    [SerializeField] private int blackStonesCount;
+    [SerializeField] private int whiteStonesCount;
+    [SerializeField] private int blackTerritoryCount;
+    [SerializeField] private int whiteTerritoryCount;
+    [SerializeField] private bool gameOver = false;      // 对局是否已结束
+    [SerializeField] private int consecutivePasses = 0;  // 连续弃权次数
+    [SerializeField] private float komi = 7.5f;  // 白棋贴目
+
+
     void Awake()
     {
         CreateBoardPoint(); 
         MoveRecords = new List<MoveRecord>();
+
+        boardHistory = new HashSet<string>();
+        initialBoardState = GetBoardState();   // 此时全部是空点
+        boardHistory.Add(initialBoardState);   // 把初始局面也记录进去
     }
 
     void Update()
@@ -123,10 +156,32 @@ public class PlayerFor2D : MonoBehaviour
         {
             CheckGroup();          //点击一个棋子，输出棋子所在块的气，并改变这块棋子颜色
         }
+
+        if (Input.GetMouseButtonDown(1))
+        {
+            CheckGroup();          //点击一个棋子，输出棋子所在块的气，并改变这块棋子颜色
+        }
+
+        if (Input.GetKeyDown(KeyCode.P))        // 按P键弃权（Pass）一手
+        {
+            PassTurn();
+        }
+
+        // 按空格键统计当前局面胜负（调试用）
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            CalculateGameResult();
+        }
     }
 
     private void LuoZiAction(int type)
     {
+        if (gameOver)
+        {
+            Debug.Log("对局已结束，禁止继续落子。");
+            return;
+        }
+
         if (hit.collider != null)          //鼠标在没在球面上
         {
             Quaternion targetRotation = Quaternion.LookRotation(hit.normal, Vector3.forward);
@@ -139,7 +194,10 @@ public class PlayerFor2D : MonoBehaviour
             StoneNum++;
             turns++;
             BlackTurn = !BlackTurn;
+            consecutivePasses = 0;  // 重置连续弃权计数
             LuoZiLogic(point, true);
+
+            moveIsPass.Add(false); //这一手是“落子”
         }
     }
 
@@ -178,39 +236,84 @@ public class PlayerFor2D : MonoBehaviour
         return point;
     }
 
-    private void HuiQi()                //悔棋 
+
+    private void HuiQi()
     {
-        MoveRecord moveRecord = MoveRecords[MoveRecords.Count-1];
-
-        RemoveGroup(FindPointHead(moveRecord.boardPoint));      //移除落点形成的group
-
-        foreach (BoardPoint boardPoint in moveRecord.boardPoints)        //除落点外，恢复
+        if (moveIsPass.Count == 0)
         {
-            if(boardPoint != moveRecord.boardPoint)
+            Debug.Log("没有可悔的手数");
+            return;
+        }
+
+        // 取出最后一手是“落子”还是“弃权”
+        bool lastWasPass = moveIsPass[moveIsPass.Count - 1];
+        moveIsPass.RemoveAt(moveIsPass.Count - 1);
+
+        // 上一手是弃权
+        if (lastWasPass)
+        {
+            // 撤销弃权：棋盘不变，只恢复回合、连续弃权计数
+            if (consecutivePasses > 0)
+                consecutivePasses--;
+
+            if (turns > 0)
+                turns--;
+
+            BlackTurn = !BlackTurn;
+
+            Debug.Log("悔棋：撤销上一手弃权，棋盘形势不变。");
+            return;
+        }
+
+        // 上一手是正常落子
+        if (MoveRecords.Count == 0)
+        {
+            Debug.LogWarning("MoveRecords 为空，但上一手标记为落子，数据不一致。");
+            return;
+        }
+
+        MoveRecord moveRecord = MoveRecords[MoveRecords.Count - 1];
+
+        // 1. 移除这一手形成的整块
+        RemoveGroup(FindPointHead(moveRecord.boardPoint));
+
+        // 2. 恢复这手落子前原有的己方块中的其它子
+        foreach (BoardPoint boardPoint in moveRecord.boardPoints)
+        {
+            if (boardPoint != moveRecord.boardPoint)
             {
                 Vector3 point = NumToPoint(boardPoint.me);
-                CreateStone(moveRecord.stoneType,boardPoint.targetRotation,point);
+                CreateStone(moveRecord.stoneType, boardPoint.targetRotation, point);
                 StoneNum++;
-                LuoZiLogic(point,false);
+                LuoZiLogic(point, false); // 不记录新 MoveRecord
             }
         }
 
+        // 3. 恢复被这一手吃掉的对方所有棋块
         foreach (StoneGroup group in moveRecord.stoneGroups)
         {
-            foreach (BoardPoint boardPoint in group.points)        //除落点外，恢复
+            foreach (BoardPoint boardPoint in group.points)
             {
                 Vector3 point = NumToPoint(boardPoint.me);
-                CreateStone(moveRecord.stoneType%2+1, boardPoint.targetRotation, point);
+                CreateStone(moveRecord.stoneType % 2 + 1, boardPoint.targetRotation, point);
                 StoneNum++;
                 LuoZiLogic(point, false);
             }
         }
 
-        turns--;
+        // 4. 回退轮次和行棋方
+        if (turns > 0)
+            turns--;
+
         BlackTurn = !BlackTurn;
 
-        MoveRecords.RemoveAt(MoveRecords.Count-1);
+        // 5. 移除这步记录
+        MoveRecords.RemoveAt(MoveRecords.Count - 1);
+
+        // 6. 重建打劫历史：只保留当前时间线的局面
+        RebuildBoardHistory();
     }
+
     private bool Check_LuoZi(string s)
     {
         if (((s == "Black" && BlackTurn) || (s == "White" && !BlackTurn)))
@@ -241,7 +344,13 @@ public class PlayerFor2D : MonoBehaviour
 
     private bool Check_HuiQi()
     {
-        if (StoneNum > 0)
+        if (gameOver)
+        {
+            Debug.Log("对局已结束，禁止悔棋。");
+            return false;
+        }
+
+        if (moveIsPass.Count > 0)
         {
             return true;
         }
@@ -251,6 +360,31 @@ public class PlayerFor2D : MonoBehaviour
             return false;
         }
     }
+
+    private void RebuildBoardHistory()
+    {
+        if (boardHistory == null)
+            boardHistory = new HashSet<string>();
+
+        boardHistory.Clear();
+
+        // 把初始局面放回去
+        if (!string.IsNullOrEmpty(initialBoardState))
+        {
+            boardHistory.Add(initialBoardState);
+        }
+
+        // 再把当前时间线上的所有局面加回去
+        foreach (var record in MoveRecords)
+        {
+            if (!string.IsNullOrEmpty(record.boardState))
+            {
+                boardHistory.Add(record.boardState);
+            }
+        }
+    }
+
+
 
     private bool IsForbiddenPoint(int stoneType) //落子地方是不是已经有子；落子之后是不是直接死且不提子；是不是劫
     {
@@ -264,7 +398,7 @@ public class PlayerFor2D : MonoBehaviour
             Debug.Log("自杀且不吃子");
             return true;
         }
-        else if (Check_Jie())
+        else if (Check_Jie(stoneType))
         {
             Debug.Log("劫");
             return true;
@@ -274,32 +408,131 @@ public class PlayerFor2D : MonoBehaviour
         }
     }
 
-    private bool Check_Jie()
+    // 在一个 int[] 棋盘上，从 startIndex 开始，搜集一整块及其气
+    private void CollectGroupAndLiberties(int[] simStones, int startIndex, int color,
+                                        HashSet<int> group, HashSet<int> liberties)
     {
-        if(MoveRecords.Count ==0)
-            return false;
-        MoveRecord moveRecord = MoveRecords[MoveRecords.Count-1];
+        Stack<int> stack = new Stack<int>();
+        stack.Push(startIndex);
+        group.Add(startIndex);
 
-        //上步落点的块只有一个子，而且气为1    <==> 我落在这对方死一个子
-        if (moveRecord.boardPoints.Count == 1 && PointHeadToGroup[FindPointHead(moveRecord.boardPoint)].GroupQiCount == 1)
+        while (stack.Count > 0)
         {
-            int DeathStoneNum = 0;      //统计上步死的子数
-            Vector3 LastPoint =new Vector3(-1,-1111,-1);            //上次死的子的位置 （循环中可能重复赋值，但是满足条件要求只有一个子，也就是一个位置，所以可以不考虑这个问题）
-            foreach (StoneGroup group in moveRecord.stoneGroups)
+            int idx = stack.Pop();
+            BoardPoint p = boardPoints[idx];
+            int[] neighbors = { p.up, p.down, p.left, p.right };
+
+            foreach (int n in neighbors)
             {
-                foreach (BoardPoint boardPoint in group.points)        
+                if (n == -1) continue;
+                int stone = simStones[n];
+
+                if (stone == 0)
                 {
-                    DeathStoneNum++;
-                    LastPoint = NumToPoint(boardPoint.me);
+                    liberties.Add(n);
+                }
+                else if (stone == color && !group.Contains(n))
+                {
+                    group.Add(n);
+                    stack.Push(n);
                 }
             }
-            if (DeathStoneNum == 1 && LastPoint == GetPoint(hit.point)) 
+        }
+    }
+
+    // 模拟在 index 处下 stoneType，返回落子后的局面字符串
+    private string SimulateBoardState(int index, int stoneType)
+    {
+        int count = boardPoints.Count;
+        if (index < 0 || index >= count) return null;
+
+        int[] simStones = new int[count];
+        for (int i = 0; i < count; i++)
+        {
+            simStones[i] = boardPoints[i].stoneType;
+        }
+
+        if (simStones[index] != 0)
+        {
+            // 该点已有棋子，合法性前面已经判断，这里直接返回
+            return null;
+        }
+
+        int opponent = stoneType % 2 + 1;
+        simStones[index] = stoneType;
+
+        // 检查四周对方棋块是否被提子（气为 0）
+        BoardPoint placed = boardPoints[index];
+        int[] neighbors = { placed.up, placed.down, placed.left, placed.right };
+
+        HashSet<int> visited = new HashSet<int>();
+
+        foreach (int n in neighbors)
+        {
+            if (n == -1) continue;
+            if (simStones[n] == opponent && !visited.Contains(n))
             {
-                return true;
+                HashSet<int> group = new HashSet<int>();
+                HashSet<int> liberties = new HashSet<int>();
+
+                CollectGroupAndLiberties(simStones, n, opponent, group, liberties);
+
+                // 标记已处理，避免重复
+                foreach (int g in group)
+                {
+                    visited.Add(g);
+                }
+
+                // 没有气 => 整块被提
+                if (liberties.Count == 0)
+                {
+                    foreach (int g in group)
+                    {
+                        simStones[g] = 0;
+                    }
+                }
             }
         }
-        return false;
+
+        // 自杀规则在 IsSuicideMove 里已处理，这里不再重复判断
+
+        char[] chars = new char[count];
+        for (int i = 0; i < count; i++)
+        {
+            int s = simStones[i];
+            if (s < 0) s = 0;
+            if (s > 2) s = 2;
+            chars[i] = (char)('0' + s);
+        }
+
+        return new string(chars);
     }
+
+
+    // 局面重复打劫判定（位置超级劫）：
+    // 模拟当前落子，若生成的整盘局面在历史局面集合中出现过，则判定为打劫，禁止落子。
+    // 不区分提一子 / 多子，统一处理。
+    private bool Check_Jie(int stoneType)
+    {
+        // 没有历史记录，不可能打劫
+        if (boardHistory == null || boardHistory.Count == 0)
+            return false;
+
+        // 当前鼠标点击位置的格点
+        Vector3 point = GetPoint(hit.point);
+        int index = PointToNum(point);
+        if (index < 0)
+            return false;
+
+        // 模拟这一步
+        string simulatedState = SimulateBoardState(index, stoneType);
+        if (string.IsNullOrEmpty(simulatedState))
+            return false;
+
+        // 若该局面在历史中出现过，则属于打劫
+        return boardHistory.Contains(simulatedState);
+    }
+
 
     private bool IsSuicideMove(BoardPoint boardPoint,int stoneType)     //是不是自杀行为，死且不提子
     {
@@ -307,43 +540,39 @@ public class PlayerFor2D : MonoBehaviour
 
         int[] neighbors = { boardPoint.up, boardPoint.down, boardPoint.left, boardPoint.right };
 
+        // 避免同一个己方块被多次累加
+        HashSet<BoardPoint> handledHeads = new HashSet<BoardPoint>();
+
         foreach (int neighbor in neighbors)
         {
-            if (neighbor != -1)
+            if (neighbor == -1) continue;
+
+            BoardPoint np = boardPoints[neighbor];
+            int tmp = IsSuicideMove(boardPoint, np, stoneType, handledHeads);
+            if (tmp == -1)          // 有空、或者能立刻提子 => 非自杀
             {
-                int tmp = IsSuicideMove(boardPoint, boardPoints[neighbor],stoneType);
-                if (tmp == -1)          //代表出现空，或者可以提子，那就可以落子
-                {
-                    return false;
-                }
-                else
-                {
-                    QiOfSameStoneGroup += tmp;
-                }
+                return false;
             }
+            QiOfSameStoneGroup += tmp;
         }
 
-        if (QiOfSameStoneGroup > 0)       //如果邻居己方块的气之和大于0，不会死
-        {
-            return false;
-        }
-        else
-        {
-            return true;
-        }
-    }         
-    private int IsSuicideMove(BoardPoint boardPoint1,BoardPoint boardPoint2,int stoneType)
+        return QiOfSameStoneGroup <= 0;
+}
+    
+    private int IsSuicideMove(BoardPoint boardPoint1, BoardPoint boardPoint2, int stoneType, HashSet<BoardPoint> handledHeads)
     {
-        if (boardPoint2.stoneType == 0)             //有空
+        if (boardPoint2.stoneType == 0)
         {
-            Debug.Log("有空");
+            // 相邻为空点 => 有气
             return -1;
         }
-        else if (boardPoint2.stoneType != stoneType)   //不同，且气等于1
+        else if (boardPoint2.stoneType != stoneType)
         {
-            if (PointHeadToGroup[FindPointHead(boardPoint2)].GroupQiCount == 1)
+            // 相邻为对方棋子
+            StoneGroup enemyGroup = PointHeadToGroup[FindPointHead(boardPoint2)];
+            if (enemyGroup.GroupQiCount == 1)
             {
-                Debug.Log("能提子");
+                // 落子后可以提子 => 非自杀
                 return -1;
             }
             else
@@ -353,10 +582,15 @@ public class PlayerFor2D : MonoBehaviour
         }
         else
         {
-            return PointHeadToGroup[FindPointHead(boardPoint2)].GroupQiCount - 1;      //计算所有相同块合起来之后的气
-        }
-    }     //对单个方向判断
+            // 相邻为己方棋子，只需对每个己方块统计一次气
+            BoardPoint head = FindPointHead(boardPoint2);
+            if (handledHeads.Contains(head)) return 0;
+            handledHeads.Add(head);
 
+            StoneGroup myGroup = PointHeadToGroup[head];
+            return myGroup.GroupQiCount - 1;
+        }
+    }
 
     private void LuoZiLogic(Vector3 point ,bool record)
     {
@@ -398,8 +632,14 @@ public class PlayerFor2D : MonoBehaviour
             LastMove.boardPoints.Add(boardpoint);
         }
 
-        if(record)
-        MoveRecords.Add(LastMove);                              //加到记录中
+        // 走完这步后的完整局面
+        LastMove.boardState = GetBoardState();
+
+        if (record)
+        {
+            MoveRecords.Add(LastMove);//加到记录中
+            boardHistory.Add(LastMove.boardState);
+        }
     }
 
     private void MergeGroup(BoardPoint boardPoint1,BoardPoint boardPoint2)   
@@ -552,6 +792,24 @@ public class PlayerFor2D : MonoBehaviour
         return new Vector3(x, 0, z);
     }
 
+    // 把当前棋盘状态（每个 BoardPoint 的 stoneType）压成字符串
+    private string GetBoardState()
+    {
+        int count = boardPoints.Count;
+        char[] chars = new char[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            int s = boardPoints[i].stoneType; // 0 / 1 / 2
+            if (s < 0) s = 0;
+            if (s > 2) s = 2;
+            chars[i] = (char)('0' + s);
+        }
+
+        return new string(chars);
+    }
+
+
 
     private void CheckStone()                  //输出当前棋盘上，不为空子的对应位置在boardpoints的下标
     {
@@ -595,4 +853,137 @@ public class PlayerFor2D : MonoBehaviour
         yield return new WaitForSeconds(time);
         mr.material = ori;
     }
+
+    // 计算当前局面的胜负（简单中国数子数地规则，不含贴目）
+    public void CalculateGameResult()
+    {
+        // 1. 统计棋子数量
+        blackStonesCount = 0;
+        whiteStonesCount = 0;
+
+        for (int i = 0; i < boardPoints.Count; i++)
+        {
+            int s = boardPoints[i].stoneType;
+            if (s == 1) blackStonesCount++;
+            else if (s == 2) whiteStonesCount++;
+        }
+
+        // 2. 统计地（空点区域）
+        blackTerritoryCount = 0;
+        whiteTerritoryCount = 0;
+
+        int totalPoints = boardPoints.Count;
+        bool[] visited = new bool[totalPoints];
+
+        for (int i = 0; i < totalPoints; i++)
+        {
+            if (visited[i]) continue;
+            if (boardPoints[i].stoneType != 0) continue;   // 不是空交叉点
+
+            // 对一个空区域做 BFS
+            int regionSize = 0;
+            bool adjBlack = false;
+            bool adjWhite = false;
+
+            Queue<int> q = new Queue<int>();
+            q.Enqueue(i);
+            visited[i] = true;
+
+            while (q.Count > 0)
+            {
+                int idx = q.Dequeue();
+                regionSize++;
+
+                BoardPoint p = boardPoints[idx];
+                int[] neighbors = { p.up, p.down, p.left, p.right };
+
+                foreach (int n in neighbors)
+                {
+                    if (n == -1) continue;
+
+                    int s = boardPoints[n].stoneType;
+                    if (s == 0)
+                    {
+                        if (!visited[n])
+                        {
+                            visited[n] = true;
+                            q.Enqueue(n);
+                        }
+                    }
+                    else if (s == 1)
+                    {
+                        adjBlack = true;
+                    }
+                    else if (s == 2)
+                    {
+                        adjWhite = true;
+                    }
+                }
+            }
+
+            // 只有一方相邻，则这一整块空交叉点算作该方地
+            if (adjBlack && !adjWhite)
+            {
+                blackTerritoryCount += regionSize;
+            }
+            else if (adjWhite && !adjBlack)
+            {
+                whiteTerritoryCount += regionSize;
+            }
+            // 若同时接触黑、白或都不接触，则为中立地，不计入任何一方
+        }
+
+        int blackScore = blackStonesCount + blackTerritoryCount;
+        float whiteScore = whiteStonesCount + whiteTerritoryCount + komi;
+
+        if (blackScore > whiteScore)
+        {
+            gameResult = GameResult.BlackWin;
+        }
+        else if (whiteScore > blackScore)
+        {
+            gameResult = GameResult.WhiteWin;
+        }
+        else
+        {
+            gameResult = GameResult.Draw;
+        }
+
+        Debug.Log($"黑棋：子数 {blackStonesCount}，地 {blackTerritoryCount}，总分 {blackScore}");
+        Debug.Log($"白棋：子数 {whiteStonesCount}，地 {whiteTerritoryCount}，贴目 {komi}，总分 {whiteScore}");
+        Debug.Log($"结果：{gameResult}");
+    }
+
+
+    // 一方弃权（Pass）一手
+    public void PassTurn()
+    {
+        if (gameOver)
+        {
+            Debug.Log("对局已结束，不能再弃权。");
+            return;
+        }
+
+        moveIsPass.Add(true); //这一手是“弃权”
+
+
+        // 记录一手弃权
+        consecutivePasses++;
+
+        // 切换行棋方
+        BlackTurn = !BlackTurn;
+        turns++;
+
+        Debug.Log($"玩家弃权，当前连续弃权次数：{consecutivePasses}");
+
+        // 若连续弃权达到 2 次，则自动终局并结算
+        if (consecutivePasses >= 2)
+        {
+            Debug.Log("双方连续弃权，对局结束，开始结算。");
+            CalculateGameResult();
+            gameOver = true;
+        }
+    }
+
+
 }
