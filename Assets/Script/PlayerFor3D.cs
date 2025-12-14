@@ -112,6 +112,10 @@ public class PlayerFor3D : MonoBehaviour
             turns++;
             BlackTurn = !BlackTurn;
         }
+        else
+        {
+            Debug.Log(1);
+        }
     }
 
     private void HuiQi()                /*»ÚÆå

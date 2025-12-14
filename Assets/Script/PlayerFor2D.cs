@@ -3,11 +3,16 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using Unity.VisualScripting;
+using UnityEditor;
 using UnityEngine;
-
+using UnityEngine.UI;
 
 public class PlayerFor2D : MonoBehaviour
 {
+    [Header("联机信息")]
+    private int PlayerType;   //1黑2白
+    private bool IsOnline;
+
     [Header("判断点击位置")]
     [SerializeField] private LayerMask whatIsBoard;
     RaycastHit hit ;
@@ -21,7 +26,7 @@ public class PlayerFor2D : MonoBehaviour
 
     [Header("轮次信息")]
     [SerializeField] int turns=1;       //多少轮
-    [SerializeField] bool BlackTurn;    //是不是黑棋回合
+    [SerializeField] bool BlackTurn=true;    //是不是黑棋回合
 
     [SerializeField] private Material tmp;
 
@@ -127,32 +132,57 @@ public class PlayerFor2D : MonoBehaviour
         boardHistory = new HashSet<string>();
         initialBoardState = GetBoardState();   // 此时全部是空点
         boardHistory.Add(initialBoardState);   // 把初始局面也记录进去
+
+        SetOnline(GameManger.instance.IsOnline,GameManger.instance.PlayerType);  //初始化联网状态和执子类型
+        GameManger.instance.OnLuoziRecived += LuoZiAction;
+        GameManger.instance.OnHuiQiSuccess += HuiQi;
+        GameManger.instance.OnHuiQiSuccess += HuiQi;
     }
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Q) && Check_LuoZi("Black"))
+        if (IsOnline)  //在线模式
         {
-            LuoZiAction(1);
+            //是你的回合
+            if((PlayerType ==1 && BlackTurn)||(PlayerType ==2 && !BlackTurn))
+            {
+                if (Input.GetMouseButtonDown(1) && Check_LuoZi(PlayerType)) //落子
+                {
+                    LuoZiAction(PlayerType,hit.point,hit.normal);
+                    GameManger.instance.SendLuoziInfo(PlayerType, hit);
+                }
+                if(Input.GetMouseButtonDown(2) && Check_HuiQi())
+                {
+                    GameManger.instance.SendHuiQi();
+                }
+            }
+        }
+        else
+        {
+            if (Input.GetKeyDown(KeyCode.Q) && Check_LuoZi(1))   //黑棋
+            {
+                LuoZiAction(1,hit.point,hit.normal);
+            }
+
+            if (Input.GetKeyDown(KeyCode.E) && Check_LuoZi(2))   //白棋
+            {
+                LuoZiAction(2, hit.point, hit.normal);
+
+            }
+
+            if (Input.GetMouseButtonDown(2) && Check_HuiQi())
+            {
+                HuiQi();
+                HuiQi();
+            }
         }
 
-        if (Input.GetKeyDown(KeyCode.E) && Check_LuoZi("White"))
-        {
-            LuoZiAction(2);
-
-        }
-
-        if (Input.GetMouseButtonDown(2) && Check_HuiQi())
-        {
-            HuiQi();          
-        }
-
-        if (Input.GetMouseButtonDown(0) && false)
+        if (Input.GetMouseButtonDown(0) &&false)
         {
             CheckStone();             //输出当前棋盘的棋子位置，在boardpoints的下标
         }
 
-        if (Input.GetMouseButtonDown(1))
+        if (Input.GetMouseButtonDown(1)&&false)
         {
             CheckGroup();          //点击一个棋子，输出棋子所在块的气，并改变这块棋子颜色
         }
@@ -174,8 +204,9 @@ public class PlayerFor2D : MonoBehaviour
         }
     }
 
-    private void LuoZiAction(int type)
+    private void LuoZiAction(int type,Vector3 hitPoint,Vector3 hitNormal)
     {
+<<<<<<< Updated upstream
         if (gameOver)
         {
             Debug.Log("对局已结束，禁止继续落子。");
@@ -185,11 +216,15 @@ public class PlayerFor2D : MonoBehaviour
         if (hit.collider != null)          //鼠标在没在球面上
         {
             Quaternion targetRotation = Quaternion.LookRotation(hit.normal, Vector3.forward);
+=======
+        Quaternion targetRotation = Quaternion.LookRotation(hitNormal, Vector3.forward);
+>>>>>>> Stashed changes
 
-            Vector3 point = GetPoint(hit.point);
+        Vector3 point = GetPoint(hitPoint);
 
-            CreateStone(type, targetRotation, point);
+        CreateStone(type, targetRotation, point);
 
+<<<<<<< Updated upstream
             boardPoints[PointToNum(point)].targetRotation = targetRotation;
             StoneNum++;
             turns++;
@@ -199,6 +234,13 @@ public class PlayerFor2D : MonoBehaviour
 
             moveIsPass.Add(false); //这一手是“落子”
         }
+=======
+        boardPoints[PointToNum(point)].targetRotation = targetRotation;
+        StoneNum++;
+        turns++;
+        BlackTurn = !BlackTurn;
+        LuoZiLogic(point, true);
+>>>>>>> Stashed changes
     }
 
     private void CreateStone(int type, Quaternion targetRotation, Vector3 point)
@@ -313,10 +355,14 @@ public class PlayerFor2D : MonoBehaviour
         // 6. 重建打劫历史：只保留当前时间线的局面
         RebuildBoardHistory();
     }
+<<<<<<< Updated upstream
 
     private bool Check_LuoZi(string s)
+=======
+    private bool Check_LuoZi(int stonetype)
+>>>>>>> Stashed changes
     {
-        if (((s == "Black" && BlackTurn) || (s == "White" && !BlackTurn)))
+        if (((stonetype == 1 && BlackTurn) || (stonetype ==2 && !BlackTurn)))
         {
 
             hit = GetPosition();
@@ -326,9 +372,7 @@ public class PlayerFor2D : MonoBehaviour
                 return false;
             }
 
-            int StoneType = s == "Black" ? 1 : 2;
-
-            if (IsForbiddenPoint(StoneType))
+            if (IsForbiddenPoint(stonetype))
             {
                 Debug.Log("此处禁止落子");
                 return false;
@@ -344,6 +388,7 @@ public class PlayerFor2D : MonoBehaviour
 
     private bool Check_HuiQi()
     {
+<<<<<<< Updated upstream
         if (gameOver)
         {
             Debug.Log("对局已结束，禁止悔棋。");
@@ -351,6 +396,9 @@ public class PlayerFor2D : MonoBehaviour
         }
 
         if (moveIsPass.Count > 0)
+=======
+        if (MoveRecords.Count > 1)
+>>>>>>> Stashed changes
         {
             return true;
         }
@@ -388,6 +436,7 @@ public class PlayerFor2D : MonoBehaviour
 
     private bool IsForbiddenPoint(int stoneType) //落子地方是不是已经有子；落子之后是不是直接死且不提子；是不是劫
     {
+        Debug.Log(GetPoint(hit.point));
         if (boardPoints[PointToNum(GetPoint(hit.point))].stoneType != 0)       //是不是有子
         {
             Debug.Log("该位置已经有子");
@@ -854,6 +903,7 @@ public class PlayerFor2D : MonoBehaviour
         mr.material = ori;
     }
 
+<<<<<<< Updated upstream
     // 计算当前局面的胜负（简单中国数子数地规则，不含贴目）
     public void CalculateGameResult()
     {
@@ -987,3 +1037,11 @@ public class PlayerFor2D : MonoBehaviour
 
 
 }
+=======
+    public void SetOnline(bool IsOnline,int palyerType)
+    {
+        this.IsOnline=IsOnline;
+        this.PlayerType = palyerType;
+    }
+}
+>>>>>>> Stashed changes
