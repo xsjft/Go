@@ -41,3 +41,9 @@ Thumbs.db
 *.rar
 *.7z
 *.cache
+
+# Unity user layout
+UserSettings/
+
+# Mistaken files
+git

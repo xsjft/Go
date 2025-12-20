@@ -25,6 +25,8 @@ public class PlayerFor2D : MonoBehaviour
 
     [SerializeField] private Material tmp;
 
+    [SerializeField] private List<bool> moveIsPass = new List<bool>(); //是否弃权
+
 
     private class BoardPoint
     {
@@ -98,6 +100,25 @@ public class PlayerFor2D : MonoBehaviour
     // 初始空棋盘局面（方便悔棋后重建）
     private string initialBoardState;
 
+        public enum GameResult
+    {
+        None,
+        BlackWin,
+        WhiteWin,
+        Draw
+    }
+
+    [Header("胜负信息")]
+    [SerializeField] private GameResult gameResult = GameResult.None;
+    [SerializeField] private int blackStonesCount;
+    [SerializeField] private int whiteStonesCount;
+    [SerializeField] private int blackTerritoryCount;
+    [SerializeField] private int whiteTerritoryCount;
+    [SerializeField] private bool gameOver = false;      // 对局是否已结束
+    [SerializeField] private int consecutivePasses = 0;  // 连续弃权次数
+    [SerializeField] private float komi = 7.5f;  // 白棋贴目
+
+
     void Awake()
     {
         CreateBoardPoint(); 
@@ -135,10 +156,32 @@ public class PlayerFor2D : MonoBehaviour
         {
             CheckGroup();          //点击一个棋子，输出棋子所在块的气，并改变这块棋子颜色
         }
+
+        if (Input.GetMouseButtonDown(1))
+        {
+            CheckGroup();          //点击一个棋子，输出棋子所在块的气，并改变这块棋子颜色
+        }
+
+        if (Input.GetKeyDown(KeyCode.P))        // 按P键弃权（Pass）一手
+        {
+            PassTurn();
+        }
+
+        // 按空格键统计当前局面胜负（调试用）
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            CalculateGameResult();
+        }
     }
 
     private void LuoZiAction(int type)
     {
+        if (gameOver)
+        {
+            Debug.Log("对局已结束，禁止继续落子。");
+            return;
+        }
+
         if (hit.collider != null)          //鼠标在没在球面上
         {
             Quaternion targetRotation = Quaternion.LookRotation(hit.normal, Vector3.forward);
@@ -151,7 +194,10 @@ public class PlayerFor2D : MonoBehaviour
             StoneNum++;
             turns++;
             BlackTurn = !BlackTurn;
+            consecutivePasses = 0;  // 重置连续弃权计数
             LuoZiLogic(point, true);
+
+            moveIsPass.Add(false); //这一手是“落子”
         }
     }
 
@@ -191,43 +237,83 @@ public class PlayerFor2D : MonoBehaviour
     }
 
 
-    private void HuiQi()                //悔棋 
+    private void HuiQi()
     {
-        MoveRecord moveRecord = MoveRecords[MoveRecords.Count-1];
-
-        RemoveGroup(FindPointHead(moveRecord.boardPoint));      //移除落点形成的group
-
-        foreach (BoardPoint boardPoint in moveRecord.boardPoints)        //除落点外，恢复
+        if (moveIsPass.Count == 0)
         {
-            if(boardPoint != moveRecord.boardPoint)
+            Debug.Log("没有可悔的手数");
+            return;
+        }
+
+        // 取出最后一手是“落子”还是“弃权”
+        bool lastWasPass = moveIsPass[moveIsPass.Count - 1];
+        moveIsPass.RemoveAt(moveIsPass.Count - 1);
+
+        // 上一手是弃权
+        if (lastWasPass)
+        {
+            // 撤销弃权：棋盘不变，只恢复回合、连续弃权计数
+            if (consecutivePasses > 0)
+                consecutivePasses--;
+
+            if (turns > 0)
+                turns--;
+
+            BlackTurn = !BlackTurn;
+
+            Debug.Log("悔棋：撤销上一手弃权，棋盘形势不变。");
+            return;
+        }
+
+        // 上一手是正常落子
+        if (MoveRecords.Count == 0)
+        {
+            Debug.LogWarning("MoveRecords 为空，但上一手标记为落子，数据不一致。");
+            return;
+        }
+
+        MoveRecord moveRecord = MoveRecords[MoveRecords.Count - 1];
+
+        // 1. 移除这一手形成的整块
+        RemoveGroup(FindPointHead(moveRecord.boardPoint));
+
+        // 2. 恢复这手落子前原有的己方块中的其它子
+        foreach (BoardPoint boardPoint in moveRecord.boardPoints)
+        {
+            if (boardPoint != moveRecord.boardPoint)
             {
                 Vector3 point = NumToPoint(boardPoint.me);
-                CreateStone(moveRecord.stoneType,boardPoint.targetRotation,point);
+                CreateStone(moveRecord.stoneType, boardPoint.targetRotation, point);
                 StoneNum++;
-                LuoZiLogic(point,false);
+                LuoZiLogic(point, false); // 不记录新 MoveRecord
             }
         }
 
+        // 3. 恢复被这一手吃掉的对方所有棋块
         foreach (StoneGroup group in moveRecord.stoneGroups)
         {
-            foreach (BoardPoint boardPoint in group.points)        //除落点外，恢复
+            foreach (BoardPoint boardPoint in group.points)
             {
                 Vector3 point = NumToPoint(boardPoint.me);
-                CreateStone(moveRecord.stoneType%2+1, boardPoint.targetRotation, point);
+                CreateStone(moveRecord.stoneType % 2 + 1, boardPoint.targetRotation, point);
                 StoneNum++;
                 LuoZiLogic(point, false);
             }
         }
 
-        turns--;
+        // 4. 回退轮次和行棋方
+        if (turns > 0)
+            turns--;
+
         BlackTurn = !BlackTurn;
 
+        // 5. 移除这步记录
         MoveRecords.RemoveAt(MoveRecords.Count - 1);
 
-        // 悔棋后重建局面历史：初始局面 + 每一步的 boardState
+        // 6. 重建打劫历史：只保留当前时间线的局面
         RebuildBoardHistory();
-
     }
+
     private bool Check_LuoZi(string s)
     {
         if (((s == "Black" && BlackTurn) || (s == "White" && !BlackTurn)))
@@ -258,7 +344,13 @@ public class PlayerFor2D : MonoBehaviour
 
     private bool Check_HuiQi()
     {
-        if (MoveRecords.Count > 0)
+        if (gameOver)
+        {
+            Debug.Log("对局已结束，禁止悔棋。");
+            return false;
+        }
+
+        if (moveIsPass.Count > 0)
         {
             return true;
         }
@@ -762,6 +854,137 @@ public class PlayerFor2D : MonoBehaviour
         mr.material = ori;
     }
 
+    // 计算当前局面的胜负（简单中国数子数地规则，不含贴目）
+    public void CalculateGameResult()
+    {
+        // 1. 统计棋子数量
+        blackStonesCount = 0;
+        whiteStonesCount = 0;
+
+        for (int i = 0; i < boardPoints.Count; i++)
+        {
+            int s = boardPoints[i].stoneType;
+            if (s == 1) blackStonesCount++;
+            else if (s == 2) whiteStonesCount++;
+        }
+
+        // 2. 统计地（空点区域）
+        blackTerritoryCount = 0;
+        whiteTerritoryCount = 0;
+
+        int totalPoints = boardPoints.Count;
+        bool[] visited = new bool[totalPoints];
+
+        for (int i = 0; i < totalPoints; i++)
+        {
+            if (visited[i]) continue;
+            if (boardPoints[i].stoneType != 0) continue;   // 不是空交叉点
+
+            // 对一个空区域做 BFS
+            int regionSize = 0;
+            bool adjBlack = false;
+            bool adjWhite = false;
+
+            Queue<int> q = new Queue<int>();
+            q.Enqueue(i);
+            visited[i] = true;
+
+            while (q.Count > 0)
+            {
+                int idx = q.Dequeue();
+                regionSize++;
+
+                BoardPoint p = boardPoints[idx];
+                int[] neighbors = { p.up, p.down, p.left, p.right };
+
+                foreach (int n in neighbors)
+                {
+                    if (n == -1) continue;
+
+                    int s = boardPoints[n].stoneType;
+                    if (s == 0)
+                    {
+                        if (!visited[n])
+                        {
+                            visited[n] = true;
+                            q.Enqueue(n);
+                        }
+                    }
+                    else if (s == 1)
+                    {
+                        adjBlack = true;
+                    }
+                    else if (s == 2)
+                    {
+                        adjWhite = true;
+                    }
+                }
+            }
+
+            // 只有一方相邻，则这一整块空交叉点算作该方地
+            if (adjBlack && !adjWhite)
+            {
+                blackTerritoryCount += regionSize;
+            }
+            else if (adjWhite && !adjBlack)
+            {
+                whiteTerritoryCount += regionSize;
+            }
+            // 若同时接触黑、白或都不接触，则为中立地，不计入任何一方
+        }
+
+        int blackScore = blackStonesCount + blackTerritoryCount;
+        float whiteScore = whiteStonesCount + whiteTerritoryCount + komi;
+
+        if (blackScore > whiteScore)
+        {
+            gameResult = GameResult.BlackWin;
+        }
+        else if (whiteScore > blackScore)
+        {
+            gameResult = GameResult.WhiteWin;
+        }
+        else
+        {
+            gameResult = GameResult.Draw;
+        }
+
+        Debug.Log($"黑棋：子数 {blackStonesCount}，地 {blackTerritoryCount}，总分 {blackScore}");
+        Debug.Log($"白棋：子数 {whiteStonesCount}，地 {whiteTerritoryCount}，贴目 {komi}，总分 {whiteScore}");
+        Debug.Log($"结果：{gameResult}");
+    }
+
+
+    // 一方弃权（Pass）一手
+    public void PassTurn()
+    {
+        if (gameOver)
+        {
+            Debug.Log("对局已结束，不能再弃权。");
+            return;
+        }
+
+        moveIsPass.Add(true); //这一手是“弃权”
+
+
+        // 记录一手弃权
+        consecutivePasses++;
+
+        // 切换行棋方
+        BlackTurn = !BlackTurn;
+        turns++;
+
+        Debug.Log($"玩家弃权，当前连续弃权次数：{consecutivePasses}");
+
+        // 若连续弃权达到 2 次，则自动终局并结算
+        if (consecutivePasses >= 2)
+        {
+            Debug.Log("双方连续弃权，对局结束，开始结算。");
+            CalculateGameResult();
+            gameOver = true;
+        }
+    }
+
     // 给 UI 调用：悔棋
     public void UI_Undo()
     {
@@ -781,9 +1004,16 @@ public class PlayerFor2D : MonoBehaviour
     {
         // 这里做“只切回合，不落子”
         turns++;
+        consecutivePasses++;
         BlackTurn = !BlackTurn;
 
-        Debug.Log("弃权一手（Pass）");
+        Debug.Log($"玩家弃权，当前连续弃权次数：{consecutivePasses}");
+        if (consecutivePasses >= 2)
+        {
+            Debug.Log("双方连续弃权，对局结束，开始结算。");
+            CalculateGameResult();
+            gameOver = true;
+        }
     }
 
     // 给 UI 调用：认输（Resign）
@@ -796,5 +1026,6 @@ public class PlayerFor2D : MonoBehaviour
         // 可选：禁止继续操作（最简单做法：禁用脚本）
         enabled = false;
     }
+
 
 }
