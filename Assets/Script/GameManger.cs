@@ -90,7 +90,7 @@ public class GameManger : MonoBehaviour
             {
                 Debug.Log($"连接成功，玩家ID：{playerId}");
                 IsOnline = true;
-                SceneManger.instance.SwitchUI("Room");
+                SceneManger.instance.SwitchScene("Room");
 
                 // 连接成功后启动监听
                 StartListeningServer();
@@ -117,7 +117,7 @@ public class GameManger : MonoBehaviour
         if (InGame) return;
         InGame = true;
 
-        SceneManger.instance.SwitchUI("Game");
+        SceneManger.instance.SwitchScene("Game");
     }
 
     public void OfflineStart()
@@ -128,7 +128,7 @@ public class GameManger : MonoBehaviour
         IsOnline = false;
         PlayerType = 0;
 
-        SceneManger.instance.SwitchUI("Game");
+        SceneManger.instance.SwitchScene("Game");
     }
     #endregion
 
@@ -250,7 +250,7 @@ public class GameManger : MonoBehaviour
         if (msg.StartsWith("INVITED:"))
         {
             if (int.TryParse(msg.Substring(8), out int inviterId))
-                ShowPopupType1(inviterId, "invite you", 1);
+                ShowPopupType1(inviterId, "邀请你", 1);
             return;
         }
         
@@ -258,7 +258,7 @@ public class GameManger : MonoBehaviour
         if (msg.StartsWith("INVITE_REJECTED:"))
         {
             if (int.TryParse(msg.Substring(16), out int rejectId))
-                ShowPopupType2(rejectId, "rejected your Invitation");
+                ShowPopupType2(rejectId, "拒绝了你的邀请");
             return;
         }
 
@@ -266,7 +266,7 @@ public class GameManger : MonoBehaviour
         if (msg.StartsWith("ROOM_FULL:"))
         {
             if (int.TryParse(msg.Substring(10), out int otherId))
-                ShowPopupType2(otherId, "'s room is full");
+                ShowPopupType2(otherId, "的房间满了");
             return;
         }
 
@@ -291,7 +291,7 @@ public class GameManger : MonoBehaviour
         if (msg.StartsWith("EXCHANGE_REQUEST:"))
         {
             if (int.TryParse(msg.Substring(17), out int opponentId))
-                ShowPopupType1(opponentId, "want to exchange stone type", 2);
+                ShowPopupType1(opponentId, "请求交换执子类型", 2);
             return;
         }
 
@@ -345,7 +345,7 @@ public class GameManger : MonoBehaviour
             else
             {
                 Debug.Log("服务端拒绝：还有玩家未准备");
-                ShowPopupType2(OpponentId, " not ready yet");
+                ShowPopupType2(OpponentId, "还没有准备");
             }
 
             return;
@@ -391,7 +391,7 @@ public class GameManger : MonoBehaviour
             if (int.TryParse(msg.Substring("HUIQI_REQUEST:".Length), out int opponentId))
             {
                 // 弹窗提示对方请求悔棋，type=3表示悔棋请求类型
-                ShowPopupType1(opponentId, "requests undo move", 3);
+                ShowPopupType1(opponentId, "请求悔棋", 3);
             }
             return;
         }
@@ -399,7 +399,7 @@ public class GameManger : MonoBehaviour
         // 接收悔棋被拒绝
         if (msg == "HUIQI_REJECTED")
         {
-            ShowPopupType2(OpponentId, "your undo request was rejected"); 
+            ShowPopupType2(OpponentId, "你的悔棋请求被对方拒绝"); 
             return;
         }
 
@@ -413,7 +413,7 @@ public class GameManger : MonoBehaviour
         //收到过一手
         if (msg.StartsWith("OpponentPassTurn:"))
         {
-            ShowPopupType2(OpponentId, "Pass Turn");
+            ShowPopupType2(OpponentId, "选择过一手");
             OnPassTurnRecived?.Invoke();
         }
 
@@ -422,7 +422,7 @@ public class GameManger : MonoBehaviour
         {
             int winnerId = int.Parse(msg.Substring("GAME_RESULT:".Length));
 
-            ShowPopupType2(winnerId,"Win");
+            ShowPopupType2(winnerId,"获胜");
 
             InGame = false;
 
@@ -451,7 +451,7 @@ public class GameManger : MonoBehaviour
                 Debug.Log($"玩家 {senderId} 同意重新开始游戏，开始重置游戏");
             }
 
-            SceneManger.instance.SwitchUI("Room");
+            SceneManger.instance.SwitchScene("Room");
 
             return;
         }
@@ -468,7 +468,21 @@ public class GameManger : MonoBehaviour
             return;
         }
 
+        //对手与服务器断开连接
+        if (msg.StartsWith("OpponentLeft:"))
+        {
+            SceneManger.instance.SwitchScene("Room");
 
+            ShowPopupType2("对手与服务器断开连接");
+            return;
+        }
+
+        //对手退出房间
+        if (msg.StartsWith("OpponentExitRoom:"))
+        {
+            SceneManger.instance.SwitchScene("Room");
+            return;
+        }
     }
     #endregion
 
@@ -495,6 +509,19 @@ public class GameManger : MonoBehaviour
         stream.Write(data, 0, data.Length);
 
         Debug.Log($"检查房间状态");
+    }
+    #endregion
+
+    #region  发送退出房间信息
+    public void SendExitRoom() 
+    {
+        if (!IsOnline) return;
+
+        string msg = $"ExitRoom:{playerId}\n";
+        byte[] data = Encoding.UTF8.GetBytes(msg);
+        stream.Write(data, 0, data.Length);
+
+        Debug.Log("请求退出房间");
     }
     #endregion
 
@@ -624,7 +651,7 @@ public class GameManger : MonoBehaviour
     {
         if (!IsOnline) return;
 
-        string msg = $"REJECT_HUIQI:{Id}\n"; 
+        string msg = $"REJECT_HUIQI:{playerId}\n"; 
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 

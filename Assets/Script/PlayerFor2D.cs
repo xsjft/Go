@@ -15,6 +15,7 @@ public class PlayerFor2D : MonoBehaviour
     [SerializeField] private Button HuiQiButton;
     [SerializeField] private Button PassTurnButton;
     [SerializeField] private Button ResignButton;
+    [SerializeField] private Button ExitButton;
 
     [Header("联机信息")]
     private int PlayerType;   //1黑2白
@@ -151,7 +152,7 @@ public class PlayerFor2D : MonoBehaviour
         HuiQiButton.interactable = false;
         PassTurnButton.interactable = false;
         ResignButton.interactable = false;
-
+        ExitButton.interactable = false;
     }
 
     public void SetOnline(bool IsOnline, int palyerType)
@@ -168,6 +169,7 @@ public class PlayerFor2D : MonoBehaviour
             HuiQiButton.interactable = false;
             PassTurnButton.interactable = false;
             ResignButton.interactable = false;
+            ExitButton.interactable = true;
         }
 
         if (IsOnline&&!gameOver)  //在线模式
@@ -1080,7 +1082,7 @@ public class PlayerFor2D : MonoBehaviour
         }
         else
         {
-            string win = BlackTurn ? "White win" : "Black win";
+            string win = BlackTurn ? "白棋获胜" : "黑棋获胜";
             GameManger.instance.ShowPopupType2(win);
         }
     }
@@ -1093,7 +1095,19 @@ public class PlayerFor2D : MonoBehaviour
         }
         else
         {
-            SceneManger.instance.SwitchUI("Game");
+            SceneManger.instance.SwitchScene("Game");
+        }
+    }
+    public void UI_Exit()
+    {
+        if (IsOnline)
+        {
+            GameManger.instance.SendExitRoom();
+            SceneManger.instance.SwitchScene("Room");
+        }
+        else
+        {
+            SceneManger.instance.SwitchScene("Logic");
         }
     }
 
@@ -1102,6 +1116,7 @@ public class PlayerFor2D : MonoBehaviour
         if (btn == null) return;
         StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
     }
+
     #endregion
 
     private void OnDisable()

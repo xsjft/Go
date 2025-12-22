@@ -21,7 +21,7 @@ public class SceneManger : MonoBehaviour
         }
     }
 
-    public void SwitchUI(string name)
+    public void SwitchScene(string name)
     {
         SceneManager.LoadScene(name); // ³¡¾°Ãû×Ö
     }

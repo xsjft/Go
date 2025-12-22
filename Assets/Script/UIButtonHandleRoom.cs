@@ -16,9 +16,10 @@ public class UIButtonHandleRoom : MonoBehaviour
     [SerializeField] private TMP_Text OpponentIdText;
     [SerializeField] private TMP_Text MyTypeText;      //执子文本
     [SerializeField] private TMP_Text OpponentTypeText; 
-    [SerializeField] private Button StartButton;  //开始，交换，准备按钮
+    [SerializeField] private Button StartButton;  //开始，交换，准备,退出房间按钮
     [SerializeField] private Button ExchangeButton;
     [SerializeField] private Button ReadyButton;
+    [SerializeField] private Button ExitRoomButton;
     [SerializeField] private TMP_Text MyReadyText;     //准备文本
     [SerializeField] private TMP_Text OpponentReadyText;
     //玩家id与对应的状态，从服务器获取
@@ -44,7 +45,7 @@ public class UIButtonHandleRoom : MonoBehaviour
         StartButton.interactable = false;
         ExchangeButton.interactable = false;
         ReadyButton.interactable= false;
-
+        ExitRoomButton.interactable = false;
     }
 
     private void Start()
@@ -245,7 +246,7 @@ public class UIButtonHandleRoom : MonoBehaviour
         GameManger.instance.SendReady();
     }  //请求交换状态
 
-    private void ChangeReadyStatus() //具体UI操作
+    private void ChangeReadyStatus() //具体UI操作，当自己准备的时候，开始按钮才可以使用
     {
         if (GameManger.instance.MyReadyStatus)
         {
@@ -265,7 +266,15 @@ public class UIButtonHandleRoom : MonoBehaviour
         {
             OpponentReadyText.text = "NotReady";
         }
-    }  
+    }
+    #endregion
+
+    #region 退出房间
+    public void ExitRoom()
+    {
+        GameManger.instance.SendExitRoom();
+        SceneManger.instance.SwitchScene("Room");
+    }
     #endregion
 
     private void JoinRoom(int Id)    //加入房间后具体ui操作代码
@@ -273,6 +282,7 @@ public class UIButtonHandleRoom : MonoBehaviour
         OpponentIdText.text = Id.ToString();
         ExchangeButton.interactable= true;
         ReadyButton.interactable= true;
+        ExitRoomButton.interactable= true;
 
         if (GameManger.instance.PlayerType == 1) //黑
         {
