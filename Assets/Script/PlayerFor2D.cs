@@ -985,23 +985,28 @@ public class PlayerFor2D : MonoBehaviour
         int blackScore = blackStonesCount + blackTerritoryCount;
         float whiteScore = whiteStonesCount + whiteTerritoryCount + komi;
 
-        if (blackScore > whiteScore)
-        {
-            gameResult = GameResult.BlackWin;
-        }
-        else if (whiteScore > blackScore)
-        {
-            gameResult = GameResult.WhiteWin;
-        }
-        else
-        {
-            gameResult = GameResult.Draw;
-        }
+        string resultText = ""; // 1. 定义一个变量存中文
 
-        string Total =
-           $"黑棋：子数 {blackStonesCount}，地 {blackTerritoryCount}，总分 {blackScore}\n" +
-           $"白棋：子数 {whiteStonesCount}，地 {whiteTerritoryCount}，贴目 {komi}，总分 {whiteScore}\n" +
-           $"结果：{gameResult}";
+            if (blackScore > whiteScore)
+            {
+                gameResult = GameResult.BlackWin;
+                resultText = "黑棋获胜"; // 2. 赋值中文
+            }
+            else if (whiteScore > blackScore)
+            {
+                gameResult = GameResult.WhiteWin;
+                resultText = "白棋获胜"; // 2. 赋值中文
+            }
+            else
+            {
+                gameResult = GameResult.Draw;
+                resultText = "平局";     // 2. 赋值中文
+            }
+
+            string Total =
+            $"黑棋：子数 {blackStonesCount}，地 {blackTerritoryCount}，总分 {blackScore}\n" +
+            $"白棋：子数 {whiteStonesCount}，地 {whiteTerritoryCount}，贴目 {komi}，总分 {whiteScore}\n" +
+            $"结果：{resultText}"; // 3. 这里把 {gameResult} 改为 {resultText}
 
         GameManger.instance.InGame = false;
         GameManger.instance.ShowPopupType2(Total);
