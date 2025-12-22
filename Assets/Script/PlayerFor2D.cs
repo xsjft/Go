@@ -3,14 +3,26 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using Unity.VisualScripting;
+using UnityEditor;
 using UnityEngine;
+using UnityEngine.UI;
 
 
 public class PlayerFor2D : MonoBehaviour
 {
+    [Header("按钮")]
+    [SerializeField] private Button RestartGameButton;
+    [SerializeField] private Button HuiQiButton;
+    [SerializeField] private Button PassTurnButton;
+    [SerializeField] private Button ResignButton;
+
+    [Header("联机信息")]
+    private int PlayerType;   //1黑2白
+    private bool IsOnline;
+
     [Header("判断点击位置")]
     [SerializeField] private LayerMask whatIsBoard;
-    RaycastHit hit ;
+    RaycastHit hit;
 
     [Header("棋子信息")]
     [SerializeField] private GameObject BlackStone;
@@ -20,7 +32,7 @@ public class PlayerFor2D : MonoBehaviour
     [SerializeField] private Vector3 StoneSize;
 
     [Header("轮次信息")]
-    [SerializeField] int turns=1;       //多少轮
+    [SerializeField] int turns = 1;       //多少轮
     [SerializeField] bool BlackTurn;    //是不是黑棋回合
 
     [SerializeField] private Material tmp;
@@ -38,7 +50,7 @@ public class PlayerFor2D : MonoBehaviour
         public int right;
         public Quaternion targetRotation;
 
-        public BoardPoint(int stoneType, int me,int up, int down, int left, int right)
+        public BoardPoint(int stoneType, int me, int up, int down, int left, int right)
         {
             this.stoneType = stoneType;
             this.me = me;
@@ -48,10 +60,10 @@ public class PlayerFor2D : MonoBehaviour
             this.right = right;
             targetRotation = Quaternion.identity;
 
-         }
+        }
     }
 
-    private List<BoardPoint> boardPoints = new List<BoardPoint>();    
+    private List<BoardPoint> boardPoints = new List<BoardPoint>();
 
     private class StoneGroup
     {
@@ -63,15 +75,15 @@ public class PlayerFor2D : MonoBehaviour
             points = new List<BoardPoint>();
             points.Add(point);
             GroupQiCount = 0;
-            QiPositions = new HashSet<BoardPoint>();  
+            QiPositions = new HashSet<BoardPoint>();
         }
     }
 
     //类似并查集，点指向头，然后头指向块，点指向物体
     //点指向头，每个点指向所属块中的头，自己是头指向自己
-    private Dictionary<BoardPoint, BoardPoint>PointToPointHead = new Dictionary<BoardPoint, BoardPoint>();     
-    private Dictionary<BoardPoint,StoneGroup> PointHeadToGroup = new Dictionary<BoardPoint, StoneGroup>();
-    private Dictionary<BoardPoint,GameObject> PointToStone = new Dictionary<BoardPoint, GameObject>();
+    private Dictionary<BoardPoint, BoardPoint> PointToPointHead = new Dictionary<BoardPoint, BoardPoint>();
+    private Dictionary<BoardPoint, StoneGroup> PointHeadToGroup = new Dictionary<BoardPoint, StoneGroup>();
+    private Dictionary<BoardPoint, GameObject> PointToStone = new Dictionary<BoardPoint, GameObject>();
 
     private class MoveRecord        //移除落点group,再将落点group依此落子，除了落点,再恢复被移除的group,
     {
@@ -81,9 +93,9 @@ public class PlayerFor2D : MonoBehaviour
         public List<BoardPoint> boardPoints;       //落点形成的group包含的所有点
 
         // 新增：该步之后的完整局面
-        public string boardState;  
+        public string boardState;
 
-        public MoveRecord(int stoneType,BoardPoint boardPoint)
+        public MoveRecord(int stoneType, BoardPoint boardPoint)
         {
             this.stoneType = stoneType;
             this.boardPoint = boardPoint;
@@ -100,7 +112,7 @@ public class PlayerFor2D : MonoBehaviour
     // 初始空棋盘局面（方便悔棋后重建）
     private string initialBoardState;
 
-        public enum GameResult
+    public enum GameResult
     {
         None,
         BlackWin,
@@ -121,50 +133,104 @@ public class PlayerFor2D : MonoBehaviour
 
     void Awake()
     {
-        CreateBoardPoint(); 
+        CreateBoardPoint();
         MoveRecords = new List<MoveRecord>();
 
         boardHistory = new HashSet<string>();
         initialBoardState = GetBoardState();   // 此时全部是空点
         boardHistory.Add(initialBoardState);   // 把初始局面也记录进去
+
+        SetOnline(GameManger.instance.IsOnline, GameManger.instance.PlayerType);  //初始化联网状态和执子类型
+        GameManger.instance.OnLuoziRecived += LuoZiAction;
+        GameManger.instance.OnHuiQiSuccess += HuiQi;  //悔棋成功调用两次
+        GameManger.instance.OnHuiQiSuccess += HuiQi;
+        GameManger.instance.OnPassTurnRecived += PassTurn;
+        GameManger.instance.OnResignRecived += SetGameOverTrue;
+
+        RestartGameButton.interactable = false;
+        HuiQiButton.interactable = false;
+        PassTurnButton.interactable = false;
+        ResignButton.interactable = false;
+
+    }
+
+    public void SetOnline(bool IsOnline, int palyerType)
+    {
+        this.IsOnline = IsOnline;
+        this.PlayerType = palyerType;
     }
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Q) && Check_LuoZi("Black"))
+        if (gameOver)
         {
-            LuoZiAction(1);
+            RestartGameButton.interactable = true;
+            HuiQiButton.interactable = false;
+            PassTurnButton.interactable = false;
+            ResignButton.interactable = false;
         }
 
-        if (Input.GetKeyDown(KeyCode.E) && Check_LuoZi("White"))
+        if (IsOnline&&!gameOver)  //在线模式
         {
-            LuoZiAction(2);
+            //是你的回合
+            if ((PlayerType == 1 && BlackTurn) || (PlayerType == 2 && !BlackTurn))
+            {
+                HuiQiButton.interactable = true;
+                PassTurnButton.interactable = true;
+                ResignButton.interactable = true;
+                if (Input.GetMouseButtonDown(1) && Check_LuoZi(PlayerType)) //落子
+                {
+                    LuoZiAction(PlayerType, hit.point, hit.normal);
+                    GameManger.instance.SendLuoziInfo(PlayerType, hit);
+                }
+                if (Input.GetMouseButtonDown(2) && Check_HuiQi())
+                {
+                    GameManger.instance.SendHuiQi();
+                }
+                if (Input.GetKeyDown(KeyCode.P))        // 按P键弃权（Pass）一手
+                {
+                    PassTurn();
+                    GameManger.instance.SendPassTurn();
+                }
+            }
+            else
+            {
+                HuiQiButton.interactable = false;
+                PassTurnButton.interactable = false;
+                ResignButton.interactable = false;
+            }
+        }
+        else if (!gameOver)
+        {
+            HuiQiButton.interactable = true;
+            PassTurnButton.interactable = true;
+            ResignButton.interactable = true;
+            if (Input.GetKeyDown(KeyCode.Q) && Check_LuoZi(1))   //黑棋
+            {
+                LuoZiAction(1, hit.point, hit.normal);
+            }
 
+            if (Input.GetKeyDown(KeyCode.E) && Check_LuoZi(2))   //白棋
+            {
+                LuoZiAction(2, hit.point, hit.normal);
+
+            }
+
+            if (Input.GetMouseButtonDown(2) && Check_HuiQi())
+            {
+                HuiQi();
+                HuiQi();
+            }
+
+            if (Input.GetKeyDown(KeyCode.P))        // 按P键弃权（Pass）一手
+            {
+                PassTurn();
+            }
         }
 
-        if (Input.GetMouseButtonDown(2) && Check_HuiQi())
-        {
-            HuiQi();          
-        }
-
-        if (Input.GetMouseButtonDown(0) && false)
-        {
-            CheckStone();             //输出当前棋盘的棋子位置，在boardpoints的下标
-        }
-
-        if (Input.GetMouseButtonDown(1))
+        if (Input.GetMouseButtonDown(1) && gameOver)
         {
             CheckGroup();          //点击一个棋子，输出棋子所在块的气，并改变这块棋子颜色
-        }
-
-        if (Input.GetMouseButtonDown(1))
-        {
-            CheckGroup();          //点击一个棋子，输出棋子所在块的气，并改变这块棋子颜色
-        }
-
-        if (Input.GetKeyDown(KeyCode.P))        // 按P键弃权（Pass）一手
-        {
-            PassTurn();
         }
 
         // 按空格键统计当前局面胜负（调试用）
@@ -174,32 +240,26 @@ public class PlayerFor2D : MonoBehaviour
         }
     }
 
-    private void LuoZiAction(int type)
+    private void LuoZiAction(int type, Vector3 hitPoint, Vector3 hitNormal)
     {
-        if (gameOver)
-        {
-            Debug.Log("对局已结束，禁止继续落子。");
-            return;
-        }
+        // 由外部传入法线
+        Quaternion targetRotation = Quaternion.LookRotation(hitNormal, Vector3.forward);
 
-        if (hit.collider != null)          //鼠标在没在球面上
-        {
-            Quaternion targetRotation = Quaternion.LookRotation(hit.normal, Vector3.forward);
+        Vector3 point = GetPoint(hitPoint);
+        CreateStone(type, targetRotation, point);
 
-            Vector3 point = GetPoint(hit.point);
+        boardPoints[PointToNum(point)].targetRotation = targetRotation;
 
-            CreateStone(type, targetRotation, point);
+        StoneNum++;
+        turns++;
+        BlackTurn = !BlackTurn;
+        consecutivePasses = 0;   // 重置连续弃权计数
 
-            boardPoints[PointToNum(point)].targetRotation = targetRotation;
-            StoneNum++;
-            turns++;
-            BlackTurn = !BlackTurn;
-            consecutivePasses = 0;  // 重置连续弃权计数
-            LuoZiLogic(point, true);
+        LuoZiLogic(point, true);
 
-            moveIsPass.Add(false); //这一手是“落子”
-        }
+        moveIsPass.Add(false);   // 这一手是落子
     }
+
 
     private void CreateStone(int type, Quaternion targetRotation, Vector3 point)
     {
@@ -314,9 +374,9 @@ public class PlayerFor2D : MonoBehaviour
         RebuildBoardHistory();
     }
 
-    private bool Check_LuoZi(string s)
+    private bool Check_LuoZi(int  type)
     {
-        if (((s == "Black" && BlackTurn) || (s == "White" && !BlackTurn)))
+        if (((type == 1 && BlackTurn) || (type == 2 && !BlackTurn)))
         {
 
             hit = GetPosition();
@@ -326,7 +386,7 @@ public class PlayerFor2D : MonoBehaviour
                 return false;
             }
 
-            int StoneType = s == "Black" ? 1 : 2;
+            int StoneType = type;
 
             if (IsForbiddenPoint(StoneType))
             {
@@ -344,12 +404,6 @@ public class PlayerFor2D : MonoBehaviour
 
     private bool Check_HuiQi()
     {
-        if (gameOver)
-        {
-            Debug.Log("对局已结束，禁止悔棋。");
-            return false;
-        }
-
         if (moveIsPass.Count > 0)
         {
             return true;
@@ -393,7 +447,7 @@ public class PlayerFor2D : MonoBehaviour
             Debug.Log("该位置已经有子");
             return true;
         }
-        else if (IsSuicideMove(boardPoints[PointToNum(GetPoint(hit.point))],stoneType))
+        else if (IsSuicideMove(boardPoints[PointToNum(GetPoint(hit.point))], stoneType))
         {
             Debug.Log("自杀且不吃子");
             return true;
@@ -402,7 +456,8 @@ public class PlayerFor2D : MonoBehaviour
         {
             Debug.Log("劫");
             return true;
-        }else 
+        }
+        else
         {
             return false;
         }
@@ -534,7 +589,7 @@ public class PlayerFor2D : MonoBehaviour
     }
 
 
-    private bool IsSuicideMove(BoardPoint boardPoint,int stoneType)     //是不是自杀行为，死且不提子
+    private bool IsSuicideMove(BoardPoint boardPoint, int stoneType)     //是不是自杀行为，死且不提子
     {
         int QiOfSameStoneGroup = 0;
 
@@ -557,8 +612,8 @@ public class PlayerFor2D : MonoBehaviour
         }
 
         return QiOfSameStoneGroup <= 0;
-}
-    
+    }
+
     private int IsSuicideMove(BoardPoint boardPoint1, BoardPoint boardPoint2, int stoneType, HashSet<BoardPoint> handledHeads)
     {
         if (boardPoint2.stoneType == 0)
@@ -592,7 +647,7 @@ public class PlayerFor2D : MonoBehaviour
         }
     }
 
-    private void LuoZiLogic(Vector3 point ,bool record)
+    private void LuoZiLogic(Vector3 point, bool record)
     {
         BoardPoint boardPoint = boardPoints[PointToNum(point)]; //首先自立为group，并记录在哈希表
         StoneGroup stoneGroup = new StoneGroup(boardPoint);
@@ -601,11 +656,11 @@ public class PlayerFor2D : MonoBehaviour
 
         #region 修正气数量
 
-        int[] neighbors = { boardPoint.up, boardPoint.down, boardPoint.left, boardPoint.right };  
+        int[] neighbors = { boardPoint.up, boardPoint.down, boardPoint.left, boardPoint.right };
 
         foreach (int neighbor in neighbors)
         {
-            if(neighbor !=-1 && boardPoints[neighbor].stoneType == 0)
+            if (neighbor != -1 && boardPoints[neighbor].stoneType == 0)
             {
                 stoneGroup.GroupQiCount++;
                 stoneGroup.QiPositions.Add(boardPoints[neighbor]);
@@ -613,19 +668,19 @@ public class PlayerFor2D : MonoBehaviour
         }
         #endregion
 
-        PointToPointHead.Add(boardPoint ,boardPoint);     
+        PointToPointHead.Add(boardPoint, boardPoint);
         PointHeadToGroup.Add(boardPoint, stoneGroup);
 
 
         //遍历上下左右，进行mergeGroup
-        if(boardPoint.up!=-1 )
-        MergeGroup(boardPoint, boardPoints[boardPoint.up]);
-        if(boardPoint.down!=-1)
-        MergeGroup(boardPoint, boardPoints[boardPoint.down]);
-        if(boardPoint.left!=-1)
-        MergeGroup(boardPoint, boardPoints[boardPoint.left]);
-        if(boardPoint.right!=-1)
-        MergeGroup(boardPoint, boardPoints[boardPoint.right]);
+        if (boardPoint.up != -1)
+            MergeGroup(boardPoint, boardPoints[boardPoint.up]);
+        if (boardPoint.down != -1)
+            MergeGroup(boardPoint, boardPoints[boardPoint.down]);
+        if (boardPoint.left != -1)
+            MergeGroup(boardPoint, boardPoints[boardPoint.left]);
+        if (boardPoint.right != -1)
+            MergeGroup(boardPoint, boardPoints[boardPoint.right]);
 
         foreach (BoardPoint boardpoint in PointHeadToGroup[FindPointHead(boardPoint)].points)
         {
@@ -640,9 +695,9 @@ public class PlayerFor2D : MonoBehaviour
             MoveRecords.Add(LastMove);//加到记录中
             boardHistory.Add(LastMove.boardState);
         }
-    }
+    }     //落子逻辑
 
-    private void MergeGroup(BoardPoint boardPoint1,BoardPoint boardPoint2)   
+    private void MergeGroup(BoardPoint boardPoint1, BoardPoint boardPoint2)
     {
         #region 说明
         //对于上下左右，为空不做处理
@@ -663,38 +718,38 @@ public class PlayerFor2D : MonoBehaviour
                 }
                 stoneGroup2.GroupQiCount = stoneGroup2.QiPositions.Count;
 
-                if(stoneGroup2.GroupQiCount == 0)
+                if (stoneGroup2.GroupQiCount == 0)
                 {
                     LastMove.stoneGroups.Add(stoneGroup2);
                     RemoveGroup(Head2);
                 }
             }
         }
-        else            
+        else
         {
             BoardPoint Head2 = FindPointHead(boardPoint2);
             if (Head1 == Head2) return;                         //如果已经是一块了，不操作
-            StoneGroup stoneGroup1 = PointHeadToGroup[Head1];   
+            StoneGroup stoneGroup1 = PointHeadToGroup[Head1];
             StoneGroup stoneGroup2 = PointHeadToGroup[Head2];
 
             stoneGroup2.points.AddRange(stoneGroup1.points);   //块1的子全都记录到块2中
             stoneGroup2.QiPositions.UnionWith(stoneGroup1.QiPositions); //合并气
-            if(stoneGroup2.QiPositions.Contains(boardPoint1))
-            stoneGroup2.QiPositions.Remove(boardPoint1);           //落点不再是气
+            if (stoneGroup2.QiPositions.Contains(boardPoint1))
+                stoneGroup2.QiPositions.Remove(boardPoint1);           //落点不再是气
             stoneGroup2.GroupQiCount = stoneGroup2.QiPositions.Count;  //修正气数量
 
             PointToPointHead[Head1] = Head2;
             PointHeadToGroup.Remove(Head1);
         }
-    }
+    }    //合并块
 
-    private BoardPoint FindPointHead(BoardPoint boardPoint)
+    private BoardPoint FindPointHead(BoardPoint boardPoint)      //找到一个子所在块的头
     {
         if (PointToPointHead[boardPoint] != boardPoint)
         {
             PointToPointHead[boardPoint] = FindPointHead(PointToPointHead[boardPoint]);
         }
-        return PointToPointHead[boardPoint];    
+        return PointToPointHead[boardPoint];
     }
     private void RemoveGroup(BoardPoint head)             //块的气为0，触发提子，遍历块中每一个子，为邻居黑子块加气
     {
@@ -714,29 +769,29 @@ public class PlayerFor2D : MonoBehaviour
 
             foreach (int neighbor in neighbors)
             {
-                if(neighbor != -1 && boardPoints[neighbor].stoneType != point.stoneType && boardPoints[neighbor].stoneType!= 0)
+                if (neighbor != -1 && boardPoints[neighbor].stoneType != point.stoneType && boardPoints[neighbor].stoneType != 0)
                 {
                     StoneGroup tmp = PointHeadToGroup[FindPointHead(boardPoints[neighbor])];
                     tmp.QiPositions.Add(point);
-                    tmp.GroupQiCount=tmp.QiPositions.Count;
+                    tmp.GroupQiCount = tmp.QiPositions.Count;
                 }
             }
 
             point.stoneType = 0;
         }
     }
-    private void CreateBoardPoint()
+    private void CreateBoardPoint()        //初始化时，创建棋盘交叉点对象boardpoints
     {
-        for(int j = -9; j < 10; j++)
+        for (int j = -9; j < 10; j++)
         {
-            for(int i = -9; i < 10; i++)
+            for (int i = -9; i < 10; i++)
             {
-                boardPoints.Add(new BoardPoint(0,PointToNum(i,j),PointToNum(i,j+1),PointToNum(i,j-1),PointToNum(i-1,j),PointToNum(i+1,j)));
+                boardPoints.Add(new BoardPoint(0, PointToNum(i, j), PointToNum(i, j + 1), PointToNum(i, j - 1), PointToNum(i - 1, j), PointToNum(i + 1, j)));
             }
         }
     }
 
-    private int PointToNum(int i,int j)       
+    private int PointToNum(int i, int j)     //从点击位置计算交叉点对应的下标
     {
 
         #region Note
@@ -756,22 +811,22 @@ public class PlayerFor2D : MonoBehaviour
 
         int num = 0;
 
-        if(i<-9||i>9||j < -9 || j > 9)
+        if (i < -9 || i > 9 || j < -9 || j > 9)
         {
             num = -1;
             return num;
         }
         else
         {
-            num += i + 9 + (j+9)*19;
+            num += i + 9 + (j + 9) * 19;
         }
 
         return num;
     }
 
-    private int PointToNum(Vector3 point)
+    private int PointToNum(Vector3 point)   
     {
-        int i = (int)point.x;  
+        int i = (int)point.x;
         int j = (int)point.z;
         return PointToNum(i, j);
     }
@@ -783,13 +838,13 @@ public class PlayerFor2D : MonoBehaviour
             Debug.Log("越界");
         }
 
-        int j = num / 19;   
-        int i = num % 19;   
+        int j = num / 19;
+        int i = num % 19;
 
         int x = i - 9;
         int z = j - 9;
 
-        return new Vector3(x, 0, z);
+        return new Vector3(x, 2, z);
     }
 
     // 把当前棋盘状态（每个 BoardPoint 的 stoneType）压成字符串
@@ -809,50 +864,42 @@ public class PlayerFor2D : MonoBehaviour
         return new string(chars);
     }
 
-
-
-    private void CheckStone()                  //输出当前棋盘上，不为空子的对应位置在boardpoints的下标
-    {
-        for(int i=0;i<boardPoints.Count;i++)
-        {
-            if (boardPoints[i].stoneType!=0)
-            {
-                Debug.Log(i);
-            }
-        }
-    }
+    #region 调试函数   显示子所在的组
 
     private void CheckGroup() //点击一个子，会显示这个子所在的group，并且debug气数量
     {
         hit = GetPosition();
-        if(hit.collider == null)
+        if (hit.collider == null)
         {
             Debug.Log("当前位置不在棋盘上");
             return;
         }
         int num = PointToNum(GetPoint(hit.point));
 
-        if (boardPoints[num].stoneType!=0)
+        if (boardPoints[num].stoneType != 0)
         {
             StoneGroup stoneGroup = PointHeadToGroup[FindPointHead(boardPoints[num])];
 
-            Debug.Log("Qi ="+  stoneGroup.GroupQiCount);
+            Debug.Log("Qi =" + stoneGroup.GroupQiCount);
 
-            foreach(BoardPoint point in stoneGroup.points)
+            foreach (BoardPoint point in stoneGroup.points)
             {
                 GameObject stone = PointToStone[point];
-                MeshRenderer mr = stone.GetComponent<MeshRenderer>();   
-                StartCoroutine(ChangeMaterical(mr,mr.material,tmp,3f));
+                MeshRenderer mr = stone.GetComponent<MeshRenderer>();
+                StartCoroutine(ChangeMaterical(mr, mr.material, tmp, 3f));
             }
         }
     }
 
-    private IEnumerator ChangeMaterical(MeshRenderer mr,Material ori,Material tmp,float time)
+    private IEnumerator ChangeMaterical(MeshRenderer mr, Material ori, Material tmp, float time)
     {
         mr.material = tmp;
         yield return new WaitForSeconds(time);
         mr.material = ori;
     }
+
+    #endregion   
+
 
     // 计算当前局面的胜负（简单中国数子数地规则，不含贴目）
     public void CalculateGameResult()
@@ -949,20 +996,19 @@ public class PlayerFor2D : MonoBehaviour
             gameResult = GameResult.Draw;
         }
 
-        Debug.Log($"黑棋：子数 {blackStonesCount}，地 {blackTerritoryCount}，总分 {blackScore}");
-        Debug.Log($"白棋：子数 {whiteStonesCount}，地 {whiteTerritoryCount}，贴目 {komi}，总分 {whiteScore}");
-        Debug.Log($"结果：{gameResult}");
+        string Total =
+           $"黑棋：子数 {blackStonesCount}，地 {blackTerritoryCount}，总分 {blackScore}\n" +
+           $"白棋：子数 {whiteStonesCount}，地 {whiteTerritoryCount}，贴目 {komi}，总分 {whiteScore}\n" +
+           $"结果：{gameResult}";
+
+        GameManger.instance.InGame = false;
+        GameManger.instance.ShowPopupType2(Total);
     }
 
 
     // 一方弃权（Pass）一手
     public void PassTurn()
     {
-        if (gameOver)
-        {
-            Debug.Log("对局已结束，不能再弃权。");
-            return;
-        }
 
         moveIsPass.Add(true); //这一手是“弃权”
 
@@ -985,47 +1031,88 @@ public class PlayerFor2D : MonoBehaviour
         }
     }
 
-    // 给 UI 调用：悔棋
-    public void UI_Undo()
+    private void SetGameOverTrue()
     {
-        // 复用你已有的判定
-        if (MoveRecords != null && MoveRecords.Count > 0)
+        this.gameOver = true;
+    }
+
+    #region UI按钮功能函数
+    public void UI_HuiQi()
+    {
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && BlackTurn) || (PlayerType == 2 && !BlackTurn))
+            {
+                GameManger.instance.SendHuiQi();
+            }
+    }
+        else
         {
             HuiQi();
+            HuiQi();
+        }
+    }
+
+    public void UI_PassTurn()
+    {
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && BlackTurn) || (PlayerType == 2 && !BlackTurn))
+            {
+                PassTurn();
+                GameManger.instance.SendPassTurn();
+            }
         }
         else
         {
-            Debug.Log("当前无法悔棋");
+            PassTurn();
         }
     }
 
-    // 给 UI 调用：弃权一手（Pass）
-    public void UI_Pass()
-    {
-        // 这里做“只切回合，不落子”
-        turns++;
-        consecutivePasses++;
-        BlackTurn = !BlackTurn;
-
-        Debug.Log($"玩家弃权，当前连续弃权次数：{consecutivePasses}");
-        if (consecutivePasses >= 2)
-        {
-            Debug.Log("双方连续弃权，对局结束，开始结算。");
-            CalculateGameResult();
-            gameOver = true;
-        }
-    }
-
-    // 给 UI 调用：认输（Resign）
     public void UI_Resign()
     {
-        // 先用 Debug 输出胜负，你后面可以接“结算界面”
-        string winner = BlackTurn ? "WhiteWin(对方胜)" : "BlackWin(对方胜)";
-        Debug.Log("认输，结果：" + winner);
-
-        // 可选：禁止继续操作（最简单做法：禁用脚本）
-        enabled = false;
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && BlackTurn) || (PlayerType == 2 && !BlackTurn))
+            {
+                GameManger.instance.SendResign();
+            }
+        }
+        else
+        {
+            string win = BlackTurn ? "White win" : "Black win";
+            GameManger.instance.ShowPopupType2(win);
+        }
     }
 
+    public void UI_ReStartGame()
+    {
+        if (IsOnline)
+        {
+            GameManger.instance.SendRestartGame();
+        }
+        else
+        {
+            SceneManger.instance.SwitchUI("Game");
+        }
+    }
 
+    public void ResetButtonInteractableFor(Button btn)
+    {
+        if (btn == null) return;
+        StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
+    }
+    #endregion
+
+    private void OnDisable()
+    {
+        if (GameManger.instance == null) return;
+
+        // 解绑事件，防止对象销毁后报错
+        GameManger.instance.OnLuoziRecived -= LuoZiAction;
+        GameManger.instance.OnHuiQiSuccess -= HuiQi;
+        GameManger.instance.OnHuiQiSuccess -= HuiQi;
+        GameManger.instance.OnPassTurnRecived -= PassTurn;
+        GameManger.instance.OnResignRecived -= SetGameOverTrue;
+    }
 }

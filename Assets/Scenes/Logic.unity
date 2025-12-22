@@ -284,16 +284,28 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1472812193}
-        m_TargetAssemblyTypeName: SceneManger, Assembly-CSharp
-        m_MethodName: SwitchUI
-        m_Mode: 5
+      - m_Target: {fileID: 1149984825}
+        m_TargetAssemblyTypeName: GameManger, Assembly-CSharp
+        m_MethodName: OfflineStart
+        m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
           m_IntArgument: 0
           m_FloatArgument: 0
           m_StringArgument: Game
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 1149984825}
+        m_TargetAssemblyTypeName: GameManger, Assembly-CSharp
+        m_MethodName: ResetButtonInteractableFor
+        m_Mode: 2
+        m_Arguments:
+          m_ObjectArgument: {fileID: 169414211}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.UI.Button, UnityEngine.UI
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
 --- !u!114 &169414212
@@ -571,7 +583,7 @@ RectTransform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 357839780}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -584,7 +596,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 40}
+  m_AnchoredPosition: {x: -0.6, y: 40}
   m_SizeDelta: {x: 220, y: 45}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &357839783
@@ -669,16 +681,28 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1472812193}
-        m_TargetAssemblyTypeName: SceneManger, Assembly-CSharp
-        m_MethodName: SwitchUI
-        m_Mode: 5
+      - m_Target: {fileID: 1149984825}
+        m_TargetAssemblyTypeName: GameManger, Assembly-CSharp
+        m_MethodName: Logic
+        m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
           m_IntArgument: 0
           m_FloatArgument: 0
           m_StringArgument: Room
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 1149984825}
+        m_TargetAssemblyTypeName: GameManger, Assembly-CSharp
+        m_MethodName: ResetButtonInteractableFor
+        m_Mode: 2
+        m_Arguments:
+          m_ObjectArgument: {fileID: 357839785}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.UI.Button, UnityEngine.UI
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
 --- !u!1 &483521132
@@ -1174,6 +1198,60 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1108729038}
   m_CullTransparentMesh: 1
+--- !u!1 &1149984823
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1149984824}
+  - component: {fileID: 1149984825}
+  m_Layer: 0
+  m_Name: GameManger
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1149984824
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1149984823}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 3.405559, y: 1.1667569, z: -4.063939}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 5
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1149984825
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1149984823}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9fcba6fe224ebf64881331efd1254ae9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  InGame: 0
+  playerId: -1
+  OpponentId: -1
+  IsOnline: 0
+  PlayerType: 0
+  OpponentType: 0
+  MyReadyStatus: 0
+  OpponentReadyStatus: 0
+  InvitePopupPre: {fileID: 8972942000801409680, guid: d5dc2dae9efbc5a4796d976b9c88ab8d, type: 3}
+  RejectPopupPre: {fileID: 2516519602423359632, guid: bef355cc8fa828d4fa776824f32ebdd5, type: 3}
 --- !u!1 &1249778040
 GameObject:
   m_ObjectHideFlags: 0

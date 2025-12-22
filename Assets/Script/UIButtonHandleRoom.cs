@@ -12,14 +12,14 @@ public class UIButtonHandleRoom : MonoBehaviour
     [SerializeField] private GameObject List;  //列表
     [SerializeField] private GameObject PlayerInviteItem; //列表中邀请样式
     [SerializeField] private GameObject PlayerStatusItem; //列表中状态样式
-    [SerializeField] private TMP_Text MyIdText;
+    [SerializeField] private TMP_Text MyIdText;        //id文本
     [SerializeField] private TMP_Text OpponentIdText;
-    [SerializeField] private TMP_Text MyTypeText;
-    [SerializeField] private TMP_Text OpponentTypeText;
-    [SerializeField] private Button StartButton;
+    [SerializeField] private TMP_Text MyTypeText;      //执子文本
+    [SerializeField] private TMP_Text OpponentTypeText; 
+    [SerializeField] private Button StartButton;  //开始，交换，准备按钮
     [SerializeField] private Button ExchangeButton;
     [SerializeField] private Button ReadyButton;
-    [SerializeField] private TMP_Text MyReadyText;
+    [SerializeField] private TMP_Text MyReadyText;     //准备文本
     [SerializeField] private TMP_Text OpponentReadyText;
     //玩家id与对应的状态，从服务器获取
     private Dictionary<int,int> PlayersIdToStatus = new Dictionary<int,int>(); //0表示可邀请，1表示房间中，2,表示游戏中
@@ -34,9 +34,9 @@ public class UIButtonHandleRoom : MonoBehaviour
         StartCoroutine(AutoRefreshStatus());
 
         //为gamemanger的监听事件初始化
-        GameManger.instance.JoinRoomSuccess += (senderId) => JoinRoom(senderId);
+        GameManger.instance.JoinRoomSuccess += JoinRoom;
         GameManger.instance.ExchangeSuccess += ExchangeStoneType;
-        GameManger.instance.OnPlayersStatusUpdated += (newStatus)=> HandleStatusUpdate(newStatus);
+        GameManger.instance.OnPlayersStatusUpdated += HandleStatusUpdate;
         GameManger.instance.OnReadyStatusChanged += ChangeReadyStatus;
 
         //初始化页面信息，自己的id以及几个按钮失效
@@ -44,6 +44,12 @@ public class UIButtonHandleRoom : MonoBehaviour
         StartButton.interactable = false;
         ExchangeButton.interactable = false;
         ReadyButton.interactable= false;
+
+    }
+
+    private void Start()
+    {
+        GameManger.instance.SendCheckRoomState();
     }
 
     #region 玩家状态列表相关
@@ -202,20 +208,11 @@ public class UIButtonHandleRoom : MonoBehaviour
     {
         if (!btn.interactable) return;
 
-        btn.interactable = false;
-
         Debug.Log($"邀请玩家 {playerId}");
 
         GameManger.instance.SendInvite(playerId);
 
-        StartCoroutine(ResetButtonInteractable(btn));
-    }
-
-    private IEnumerator ResetButtonInteractable(Button btn)
-    {
-        yield return new WaitForSeconds(5f);
-        if(btn!=null)
-        btn.interactable = true;
+        StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
     }
     #endregion
 
@@ -241,7 +238,6 @@ public class UIButtonHandleRoom : MonoBehaviour
         }
     } //实际交换代码
     #endregion  
-
 
     #region 准备相关
     public void RequestChangeReadyStatus()
@@ -289,12 +285,31 @@ public class UIButtonHandleRoom : MonoBehaviour
             OpponentTypeText.text = "black";
         }
 
-        MyReadyText.text = "NotReady";
-        OpponentReadyText.text = "NotReady";
+        ChangeReadyStatus();
     }
 
     public void GameStart()
     {
-        GameManger.instance.GameStart();
+        GameManger.instance.SendGameStart();
     }
+
+    public void ResetButtonInteractableFor(Button btn)
+    {
+        if (btn == null) return;
+        StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
+    }
+
+
+    private void OnDisable()
+    {
+        if (GameManger.instance == null) return;
+
+        GameManger.instance.JoinRoomSuccess -= JoinRoom;
+        GameManger.instance.ExchangeSuccess -= ExchangeStoneType;
+        GameManger.instance.OnPlayersStatusUpdated -= HandleStatusUpdate;
+        GameManger.instance.OnReadyStatusChanged -= ChangeReadyStatus;
+
+        Debug.Log("Room UI 事件解绑完成");
+    }
+
 }

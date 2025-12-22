@@ -11,12 +11,13 @@ public class GameManger : MonoBehaviour
 {
     public static GameManger instance;
 
-    public bool InGame = false;
+    public bool InGame = false;   //暂时没用到
     public int playerId = -1;
     public int OpponentId = -1;
-    public bool IsOnline;
-    public int PlayerType;
-    public bool MyReadyStatus;
+    public bool IsOnline;         //是否在线
+    public int PlayerType;         //双方执子类型
+    public int OpponentType;
+    public bool MyReadyStatus;        //双方准备状态
     public bool OpponentReadyStatus;
 
     private TcpClient client = new TcpClient();
@@ -34,14 +35,16 @@ public class GameManger : MonoBehaviour
     private Dictionary<int, int> PlayersIdToStatus = new Dictionary<int, int>();
     private string recvCache = "";//收到的消息缓存
 
-    // 事件：展示弹窗1，展示弹窗2，加入房间，交换执子类型，刷新玩家状态
+    // 事件：加入房间成功，交换执子成功，玩家列表刷新，准备状态改变，
+    // 接收到落子信息，悔棋成功，过一手，玩家认输
     public Action<int> JoinRoomSuccess;
     public Action ExchangeSuccess;
     public Action<Dictionary<int, int>> OnPlayersStatusUpdated;
     public Action OnReadyStatusChanged;
     public Action<int,Vector3,Vector3> OnLuoziRecived;
     public Action OnHuiQiSuccess;
-
+    public Action OnPassTurnRecived;
+    public Action OnResignRecived;
 
     private void Awake()
     {
@@ -71,7 +74,7 @@ public class GameManger : MonoBehaviour
 
         if (!client.Connected)
         {
-            Debug.LogError("服务器连接失败");
+            ShowPopupType2("连接超时");
             yield break;
         }
 
@@ -127,17 +130,6 @@ public class GameManger : MonoBehaviour
 
         SceneManger.instance.SwitchUI("Game");
     }
-    #endregion
-
-    #region 获取玩家状态
-    public void RequestPlayersStatus()
-    {
-        if (stream == null || !client.Connected) return;
-
-        byte[] msg = Encoding.UTF8.GetBytes("STATUS_ALL?\n");
-        stream.Write(msg, 0, msg.Length);
-    }
-
     #endregion
 
     #region 监听
@@ -199,6 +191,58 @@ public class GameManger : MonoBehaviour
 
             PlayersIdToStatus = result;
             OnPlayersStatusUpdated?.Invoke(result);
+            return;
+        }
+
+        // 房间状态
+        if (msg.StartsWith("RoomState:"))
+        {
+            string content = msg.Substring("RoomState:".Length).Trim();
+
+            // 不在房间
+            if (content.StartsWith("0"))
+            {
+                return;
+            }
+
+            // RoomState:1,me=10,op=11,meColor=1,opColor=0,meReady=1,opReady=0
+
+            string[] parts = content.Split(',');
+            foreach (string part in parts)
+            {
+                if (!part.Contains("=")) continue;
+
+                string[] kv = part.Split('=');
+                string key = kv[0].Trim();
+                string value = kv[1].Trim();
+
+                switch (key)
+                {
+                    case "me":
+                        // 可以忽略，默认就是自己playerId
+                        break;
+                    case "op":
+                        OpponentId = int.Parse(value);
+                        break;
+                    case "meColor":
+                        PlayerType = (int.Parse(value) == 1) ? 1 : 2; // 1黑 2白
+                        break;
+                    case "opColor":
+                        OpponentType = (int.Parse(value) == 1) ? 1 : 2;
+                        break;
+                    case "meReady":
+                        MyReadyStatus = (value == "1");
+                        break;
+                    case "opReady":
+                        OpponentReadyStatus = (value == "1");
+                        break;
+                }
+            }
+
+            JoinRoomSuccess?.Invoke(OpponentId);
+
+            Debug.Log($"房间状态更新：我={MyReadyStatus}({PlayerType}), 对手={OpponentReadyStatus}({OpponentType})");
+
             return;
         }
 
@@ -288,7 +332,7 @@ public class GameManger : MonoBehaviour
             return;
         }
 
-        //游戏开始请求
+        //游戏开始
         if (msg.StartsWith("GAME_START_RESULT:"))
         {
             string resultStr = msg.Substring("GAME_START_RESULT:".Length).Trim();
@@ -365,6 +409,92 @@ public class GameManger : MonoBehaviour
             OnHuiQiSuccess?.Invoke(); 
             return;
         }
+
+        //收到过一手
+        if (msg.StartsWith("OpponentPassTurn:"))
+        {
+            ShowPopupType2(OpponentId, "Pass Turn");
+            OnPassTurnRecived?.Invoke();
+        }
+
+        // 收到认输
+        if (msg.StartsWith("GAME_RESULT:"))
+        {
+            int winnerId = int.Parse(msg.Substring("GAME_RESULT:".Length));
+
+            ShowPopupType2(winnerId,"Win");
+
+            InGame = false;
+
+            OnResignRecived?.Invoke();
+            return;
+        }
+
+        // 收到重新开始游戏请求
+        if (msg.StartsWith("RequestRestartGameFrom:"))
+        {
+            if (int.TryParse(msg.Substring("RequestRestartGameFrom:".Length), out int requesterId))
+            {
+                Debug.Log($"收到玩家 {requesterId} 的重新开始游戏请求");
+
+                // 弹窗提示玩家选择是否接受
+                ShowPopupType1(requesterId,"请求重新开始游戏",4);  
+            }
+            return;
+        }
+
+        // 收到重新开始游戏
+        if (msg.StartsWith("ReStartGame:"))
+        {
+            if (int.TryParse(msg.Substring("ReStartGame:".Length), out int senderId))
+            {
+                Debug.Log($"玩家 {senderId} 同意重新开始游戏，开始重置游戏");
+            }
+
+            SceneManger.instance.SwitchUI("Room");
+
+            return;
+        }
+
+        // 收到重新开始游戏被拒绝
+        if (msg.StartsWith("ReStartGameRejected:"))
+        {
+            if (int.TryParse(msg.Substring("ReStartGameRejected:".Length), out int rejecterId))
+            {
+                Debug.Log($"玩家 {rejecterId} 拒绝了重新开始游戏请求");
+
+                ShowPopupType2(rejecterId, "拒绝了你的重新开始请求");
+            }
+            return;
+        }
+
+
+    }
+    #endregion
+
+    #region 向服务器发送请求
+
+    #region 获取玩家状态
+    public void RequestPlayersStatus()
+    {
+        if (stream == null || !client.Connected) return;
+
+        byte[] msg = Encoding.UTF8.GetBytes("STATUS_ALL?\n");
+        stream.Write(msg, 0, msg.Length);
+    }
+
+    #endregion
+
+    #region  检查玩家是否在房间
+    public void SendCheckRoomState()
+    {
+        if (!IsOnline) return;
+
+        string msg = $"CheckRoom:{playerId}\n";
+        byte[] data = Encoding.UTF8.GetBytes(msg);
+        stream.Write(data, 0, data.Length);
+
+        Debug.Log($"检查房间状态");
     }
     #endregion
 
@@ -439,7 +569,8 @@ public class GameManger : MonoBehaviour
 
     #endregion
 
-    public void GameStart()
+    #region 开始游戏
+    public void SendGameStart()
     {
         if (!IsOnline) return;
 
@@ -449,7 +580,9 @@ public class GameManger : MonoBehaviour
 
         Debug.Log($"请求开始游戏");
     }
+    #endregion
 
+    #region 落子
     public void SendLuoziInfo(int stoneType, RaycastHit hit)
     {
         Vector3 p = hit.point;
@@ -462,6 +595,7 @@ public class GameManger : MonoBehaviour
 
         Debug.Log("发送落子信息: " + msg);
     }
+    #endregion
 
     #region  悔棋
     public void SendHuiQi()
@@ -498,11 +632,73 @@ public class GameManger : MonoBehaviour
     }
     #endregion
 
+    #region 过一手
+    public void SendPassTurn()
+    {
+        if (!IsOnline) return;
+
+        string msg = $"PassTurn:{playerId}\n";
+        byte[] data = Encoding.UTF8.GetBytes(msg);
+        stream.Write(data, 0, data.Length);
+
+        Debug.Log("请求 PassTurn");
+    }
+    #endregion
+
+    #region 投降
+    public void SendResign()
+    {
+        if (!IsOnline) return;
+
+        string msg = $"Resign:{playerId}\n";
+        byte[] data = Encoding.UTF8.GetBytes(msg);
+        stream.Write(data, 0, data.Length);
+
+        Debug.Log("Resign");
+    }
+    #endregion
+
+    #region 请求再来一局
+    public void SendRestartGame()
+    {
+        if (!IsOnline) return;
+
+        string msg = $"RequestReStartGame:{playerId}\n";
+        byte[] data = Encoding.UTF8.GetBytes(msg);
+        stream.Write(data, 0, data.Length);
+
+        Debug.Log("RequestRestartGame");
+    }
+
+    public void AcceptRestartGame()
+    {
+        if (!IsOnline) return;
+
+        string msg = $"ReStartGameAccept:{playerId}\n";
+        byte[] data = Encoding.UTF8.GetBytes(msg);
+        stream.Write(data, 0, data.Length);
+
+        Debug.Log($"同意重新开始游戏");
+    }
+
+    public void RejectRestartGame()
+    {
+        if (!IsOnline) return;
+
+        string msg = $"ReStartGameReject:{playerId}\n";
+        byte[] data = Encoding.UTF8.GetBytes(msg);
+        stream.Write(data, 0, data.Length);
+
+        Debug.Log($"拒绝重新开始游戏");
+    }
+    #endregion
+
+    #endregion
 
     #region  弹窗相关
 
     //id，显示文本，弹窗的功能（弹窗中按钮需要绑定不同函数）
-    private void ShowPopupType1(int Id, string info, int type)
+    public void ShowPopupType1(int Id, string info, int type)
     {
         if (currentinvitePopup != null) return; // 避免重复弹窗
 
@@ -545,11 +741,18 @@ public class GameManger : MonoBehaviour
             acceptBtn.onClick.AddListener(() => DestroyPopup());
             rejectBtn.onClick.AddListener(() => DestroyPopup());
         }
+        else if(type == 4)
+        {
+            acceptBtn.onClick.AddListener(() => AcceptRestartGame());
+            rejectBtn.onClick.AddListener(() => RejectRestartGame());
+            acceptBtn.onClick.AddListener(() => DestroyPopup());
+            rejectBtn.onClick.AddListener(() => DestroyPopup());
+        }
     }
 
 
     //id，显示文本（虽然有一个按钮，但是绑定同一个销毁函数，弹窗功能类似于通知）
-    private void ShowPopupType2(int Id, string info)
+    public void ShowPopupType2(int Id, string info)
     {
         if (currentRejectPopup != null) return;
 
@@ -560,6 +763,19 @@ public class GameManger : MonoBehaviour
 
         buttons[0].onClick.AddListener(() => DestroyPopup());
         texts[1].text = Id + info.ToString();
+    }
+
+    public void ShowPopupType2(string info)
+    {
+        if (currentRejectPopup != null) return;
+
+        currentinvitePopup = Instantiate(RejectPopupPre, transform);
+
+        Button[] buttons = currentinvitePopup.GetComponentsInChildren<Button>();
+        TMP_Text[] texts = currentinvitePopup.GetComponentsInChildren<TMP_Text>();
+
+        buttons[0].onClick.AddListener(() => DestroyPopup());
+        texts[1].text =info.ToString();
     }
 
     public void DestroyPopup()
@@ -576,4 +792,18 @@ public class GameManger : MonoBehaviour
         }
     }
     #endregion
+
+    //按钮失效与恢复
+    public void ResetButtonInteractableFor(Button btn)
+    {
+        if (btn == null) return;
+        StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
+    }
+    public IEnumerator ResetButtonInteractable(Button btn)
+    {
+        btn.interactable = false;
+        yield return new WaitForSeconds(5f);
+        if (btn != null)
+            btn.interactable = true;
+    }
 }
