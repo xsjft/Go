@@ -289,7 +289,6 @@ public class PlayerFor2D : MonoBehaviour
         Physics.Raycast(ray, out hit, Mathf.Infinity, whatIsBoard);
 
         return hit;
-
     }
     private Vector3 GetPoint(Vector3 point)
     {

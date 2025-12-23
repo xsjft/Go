@@ -2,136 +2,101 @@ using System.Collections;
 using System.Collections.Generic;
 using Unity.VisualScripting;
 using UnityEngine;
-
+using System.IO;   // 提供 File, FileInfo, StreamReader 等
+using System.Data;
+using System.Drawing;
 
 public class PlayerFor3D : MonoBehaviour
 {
-
-    [Header("旋转棋盘")]
-    [SerializeField] private float xInput;
-    [SerializeField] private float xSpeed;     //旋转速度
-    [SerializeField] private float yInput;
-    [SerializeField] private float ySpeed;
-
     [Header("判断点击位置")]
     [SerializeField] private LayerMask whatIsBoard;
+    private RaycastHit hit;
 
-    [Header("棋子信息")]
+    [Header("棋子,棋盘信息")]
+    [SerializeField] private MeshFilter meshFilter;  // 棋盘网格
     [SerializeField] private GameObject BlackStone;
     [SerializeField] private GameObject WhiteStone;
-    [SerializeField] private GameObject TempStone;
-    [SerializeField] private int StoneNum=0;
-    private List<GameObject> allStone = new List<GameObject>();       //棋子对象列表
+    [SerializeField] private Vector3 StoneSize;
+    [SerializeField] private int StoneNum = 0;
+    private List<GameObject> allStone = new List<GameObject>(); // 棋子对象列表
 
-    [Header("轮次信息")]
-    [SerializeField] int turns;       //多少轮
-    [SerializeField] bool BlackTurn;    //是不是黑棋回合
-
-
-    private struct BoardPoint
+    private class BoardPoint
     {
-        public Vector3 pointPosition;       //棋盘交叉点坐标
-        public int stoneType;                //交叉点上棋子状态，0，1,2
-        /*
-         * 上下左右点坐标是否要记录
-         * 
-        */
-    };
-
-    private BoardPoint[,] boardPoints;        //二维数组，从某个点展开，上下左右遍历一遍，得到二维数组，落子改状态，之后dfs判断气
-
-    private struct StoneGroup
-    {
-        public BoardPoint[] points;
-        public int count_Qi;
+        public int stoneType;  // 0=空,1=黑,2=白
+        public int me;
+        public List<int> neighbors;
+        public BoardPoint(int stoneType, int me)
+        {
+            this.stoneType = stoneType;
+            this.me = me;
+            this.neighbors = new List<int>();
+        }
     }
 
-    private List<StoneGroup> WhiteStoneGroups = new List<StoneGroup>();
-    private List<StoneGroup> BlackStoneGroups = new List<StoneGroup>();
-    /*
-     * 每次落子修改相邻黑棋白棋块气的数量
-     * 每次落子，理论上只影响上下左右四个地方
-     * 提子遍历所有块？
-     * 悔棋或其他功能需要考虑
-     */
+    public string csvPath = "Assets/Model/p.csv";
+    private List<BoardPoint> boardPoints = new List<BoardPoint>();
+    private Dictionary<int,Vector3> NumToPoint = new Dictionary<int,Vector3>();
 
     void Start()
     {
-
+        LoadBoardFromCSV();
+        Debug.Log("BoardPoint 构建完成");
     }
 
-    void Update()
+    private void Update()
     {
-        xInput = Input.GetAxis("Horizontal");
-        yInput = Input.GetAxis ("Vertical");
-        //Debug.Log(Input.mousePosition);
-
-        if (Input.GetKeyDown(KeyCode.Q)&&Check_LuoZi("Black"))
+        if(Input.GetMouseButtonDown(0))
         {
-            LuoZi("Black");
-        }
-
-        if (Input.GetKeyDown(KeyCode.E) && Check_LuoZi("White"))
-        {
-            LuoZi("White");
-
-        }
-
-        if (Input.GetMouseButtonDown(1) && Check_HuiQi())
-        {
-            HuiQi();
+            test();
         }
     }
-    private void FixedUpdate()
-    {
-        transform.Rotate(yInput*xSpeed,xInput*ySpeed,0,Space.World);     //球面旋转
-    }
-    
-    private void LuoZi(string s)
-    {
-        RaycastHit hit = GetPosition();
 
-        if (hit.collider != null)          //鼠标在没在球面上
+    void LoadBoardFromCSV()
+    {
+        var lines = File.ReadAllLines(csvPath);
+
+        for (int i = 1; i < lines.Length; i++)  // 从第2行开始，跳过表头
         {
-            Vector3 normal = hit.normal;
-            Quaternion targetRotation = Quaternion.LookRotation(normal, Vector3.forward);
+            var parts = lines[i].Split(',');
+
+            int index = int.Parse(parts[0]);
+            float x = float.Parse(parts[1]);
+            float y = float.Parse(parts[2]);
+            float z = float.Parse(parts[3]);
+
+            Vector3 pos = new Vector3(x, y, z);
             
+            BoardPoint bp = new BoardPoint(0, index);
 
-            if (s == "Black") 
-            { 
-              GameObject qizi = Instantiate(BlackStone, hit.point, targetRotation, transform);   //创建棋子
-              allStone.Add(qizi);
-            }
-            else 
+            for (int n = 4; n < parts.Length; n++)
             {
-                GameObject qizi = Instantiate(WhiteStone, hit.point, targetRotation, transform);
-                allStone.Add(qizi);
+                if (int.TryParse(parts[n].Trim(), out int neighborIndex))
+                {
+                    bp.neighbors.Add(neighborIndex);
+                    Debug.Log($"顶点 {index} 邻居: {neighborIndex}");
+                }
             }
 
-            StoneNum++;
-            turns++;
-            BlackTurn = !BlackTurn;
+            boardPoints.Add(bp);
+            NumToPoint[index] = pos;
         }
-        else
+    }
+
+    private void test()
+    {
+        hit = GetPosition();
+
+        int closestIndex = PointToNum(hit.point);
+
+        create(NumToPoint[closestIndex]);
+
+        foreach(var Index in boardPoints[closestIndex].neighbors)
         {
-            Debug.Log(1);
+            create(NumToPoint[Index]);
         }
     }
 
-    private void HuiQi()                /*悔棋
-                                         * 如果上轮没有提子之类，直接销毁最后一个棋子
-                                         * 如果上轮触发了提子之类，还需要恢复被提的子（额外的容器记录）
-                                        */
-    { 
-        Destroy(allStone[StoneNum - 1]);
-        allStone.RemoveAt(StoneNum - 1);
-        StoneNum--;
-        turns--;
-        BlackTurn = !BlackTurn;
-    }
-
-
-    public RaycastHit GetPosition()              //获取鼠标在球面上碰撞点信息
+    private RaycastHit GetPosition()              //获取鼠标在球面上碰撞点信息
     {
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
 
@@ -140,47 +105,44 @@ public class PlayerFor3D : MonoBehaviour
         Physics.Raycast(ray, out hit, Mathf.Infinity, whatIsBoard);
 
         return hit;
-        
     }
 
-    private bool Check_LuoZi(string s)     
+    private int PointToNum(Vector3 point)
     {
-        if(  ((s=="Black"&&BlackTurn)   || (s == "White" && !BlackTurn))  &&  !IsForbiddenPoint())
+        int closestIndex = -1;
+        float minDistanceSqr = float.MaxValue;
+
+        foreach (KeyValuePair<int, Vector3> kvp in NumToPoint)
         {
-            return true;
+            int index = kvp.Key;
+            Vector3 localPos = kvp.Value;                // 存储的局部坐标
+            Vector3 worldPos = transform.TransformPoint(localPos); // 转换为世界坐标
+
+            float distanceSqr = (worldPos - point).sqrMagnitude;
+            if (distanceSqr < minDistanceSqr)
+            {
+                minDistanceSqr = distanceSqr;
+                closestIndex = index;
+            }
+
         }
-        else
-        {
-            Debug.Log("不是你的回合");
-            return false;
-        }
+
+        return closestIndex; 
     }
 
-    private bool Check_HuiQi()
+    private void create(Vector3 position)
     {
-        if (StoneNum > 0)
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
-    }
+        // 将存储的局部坐标转换为世界坐标
+        Vector3 worldPos = transform.TransformPoint(position);
 
-    private bool IsForbiddenPoint() //落子地方是不是已经有子；落子之后是不是直接死且不提子；是不是劫
-    {
-        return false;
-    }
+        // 根据碰撞点法线生成朝向
+        Quaternion targetRotation = Quaternion.LookRotation(hit.normal, Vector3.forward);
 
-    private void TiZi()             //落子之后循环判断对方棋子的气
-    {
+        // 实例化棋子
+        GameObject qizi = Instantiate(BlackStone, worldPos, targetRotation, transform);
 
-    }
-
-    private void check_Qi()         //判断气
-    {
-        
+        // 设置棋子大小
+        qizi.transform.localScale = StoneSize;
     }
 
 }
