@@ -33,19 +33,19 @@ public class PlayerFor3D : MonoBehaviour
         }
     }
 
-    public string csvPath = "Assets/Model/p.csv";
-    private List<BoardPoint> boardPoints = new List<BoardPoint>();
-    private Dictionary<int,Vector3> NumToPoint = new Dictionary<int,Vector3>();
+    public string csvPath = "Assets/Model/p.csv";//交叉点坐标信息
+    private List<BoardPoint> boardPoints = new List<BoardPoint>();//存储棋盘交叉点
+    private Dictionary<int,Vector3> NumToPoint = new Dictionary<int,Vector3>(); //从boardpoints的下标转到对应的坐标
 
     void Start()
     {
-        LoadBoardFromCSV();
+        LoadBoardFromCSV();//初始化交叉点信息
         Debug.Log("BoardPoint 构建完成");
     }
 
     private void Update()
     {
-        if(Input.GetMouseButtonDown(0))
+        if(Input.GetMouseButtonDown(0)) 
         {
             test();
         }
@@ -82,7 +82,7 @@ public class PlayerFor3D : MonoBehaviour
         }
     }
 
-    private void test()
+    private void test()//用于测试交叉点信息是否正确，点击棋盘对应位置生成棋子及邻居棋子
     {
         hit = GetPosition();
 
@@ -107,7 +107,7 @@ public class PlayerFor3D : MonoBehaviour
         return hit;
     }
 
-    private int PointToNum(Vector3 point)
+    private int PointToNum(Vector3 point)   //找到点击点对应的最近的交叉点下标
     {
         int closestIndex = -1;
         float minDistanceSqr = float.MaxValue;
