@@ -1287,6 +1287,8 @@ MonoBehaviour:
   BlackStone: {fileID: 7910045639686893385, guid: 29b62ca0cd1a1e64f89e62e2c9eaf273, type: 3}
   WhiteStone: {fileID: 159988864878202081, guid: f442678feb749744d952540742a81558, type: 3}
   StoneSize: {x: 0.1, y: 0.1, z: 0.1}
+  TempBlackStone: {fileID: 7910045639686893385, guid: 8c594f71a97b7ad47bf1b18f2a83b87b, type: 3}
+  TempWhiteStone: {fileID: 7910045639686893385, guid: 1a47d9e036b306842b3f004c7fa96243, type: 3}
   csvPath: 'Model/p.csv '
   useSuperKo: 1
   allowSuicide: 0

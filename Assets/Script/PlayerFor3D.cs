@@ -15,6 +15,13 @@ public class PlayerFor3D : MonoBehaviour
     [SerializeField] private GameObject WhiteStone;
     [SerializeField] private Vector3 StoneSize = Vector3.one;
 
+    [Header("预下棋（Temp）")]
+    [SerializeField] private GameObject TempBlackStone;   // black_tem prefab
+    [SerializeField] private GameObject TempWhiteStone;   // white_tem prefab
+
+    private int tempIdx = -1;
+    private GameObject tempStoneObj = null;
+
     [Header("棋盘点数据 (建议填 Model/p.csv 或 Assets/Model/p.csv)")]
     [SerializeField] public string csvPath = "Model/p.csv"; // 相对于 Assets/ 的路径更稳
     private string csvFullPath;
@@ -149,8 +156,32 @@ public class PlayerFor3D : MonoBehaviour
             if (!TryGetHit(out RaycastHit hit)) return;
 
             int idx = WorldPointToClosestIndex(hit.point);
-            TryPlaceStone(idx);
+
+            // 点到已有棋子：取消预下棋（或你也可以选择无视）
+            if (stoneType[idx] != 0)
+            {
+                ClearTempStone();
+                return;
+            }
+
+            // 第一次点：生成预下棋
+            if (tempIdx < 0)
+            {
+                ShowTempStone(idx);
+                return;
+            }
+
+            // 第二次点同一位置：确认落子
+            if (idx == tempIdx)
+            {
+                ConfirmTempStone();
+                return;
+            }
+
+            // 第二次点不同位置：移动预下棋
+            ShowTempStone(idx);
         }
+
     }
 
 
@@ -518,6 +549,59 @@ public class PlayerFor3D : MonoBehaviour
         }
     }
 
+    private void ClearTempStone()
+    {
+        if (tempStoneObj != null) Destroy(tempStoneObj);
+        tempStoneObj = null;
+        tempIdx = -1;
+    }
+
+    private void ShowTempStone(int idx)
+    {
+        // 只允许在空点预下
+        if (idx < 0 || idx >= stoneType.Length) return;
+
+        if (stoneType[idx] != 0)
+        {
+            ClearTempStone();
+            return;
+        }
+
+        // 按回合选择预下棋 prefab
+        GameObject prefab = blackTurn ? TempBlackStone : TempWhiteStone;
+        if (prefab == null)
+        {
+            Debug.LogError("TempBlackStone / TempWhiteStone 未绑定：请把 black_tem / white_tem prefab 拖入 Inspector");
+            return;
+        }
+
+        // 若已有 temp，先删掉再生成新的
+        if (tempStoneObj != null) Destroy(tempStoneObj);
+
+        Vector3 worldPos = transform.TransformPoint(points[idx].localPos);
+        Vector3 normal = (worldPos - transform.position).normalized;
+        Quaternion rot = Quaternion.LookRotation(normal, Vector3.forward);
+
+        GameObject go = Instantiate(prefab, worldPos, rot, transform);
+
+        // 预下棋与正式棋同尺寸（如果你的 prefab 自带缩放不为1，这里统一强制）
+        go.transform.localScale = StoneSize;
+
+        tempStoneObj = go;
+        tempIdx = idx;
+    }
+
+
+    private void ConfirmTempStone()
+    {
+        if (tempIdx < 0) return;
+
+        int idx = tempIdx;
+        ClearTempStone();         // 先清掉预下棋，再正式落子（避免视觉冲突）
+        TryPlaceStone(idx);       // 走你原来的完整规则/提子/劫/日志/入栈
+    }
+
+
     private void SpawnStoneAt(int idx, int color)
     {
         Vector3 worldPos = transform.TransformPoint(points[idx].localPos);
@@ -606,12 +690,16 @@ public class PlayerFor3D : MonoBehaviour
 
         RebuildVisualFromState(stoneType);
 
+        ClearTempStone();
+
         Log($"[悔棋] 回到第 {moveNumber} 手。轮到：{(blackTurn ? "黑" : "白")}");
     }
 
     public void Pass()
     {
         if (gameOver) return;
+
+        ClearTempStone();
 
         Log($"[弃权] {CurrentColorName()} 弃权一手。");
 
@@ -637,6 +725,9 @@ public class PlayerFor3D : MonoBehaviour
 
     public void Resign()
     {
+
+        ClearTempStone();
+
         gameOver = true;
         Log(blackTurn ? "[认输] 黑方认输，白方胜。" : "[认输] 白方认输，黑方胜。");
     }
