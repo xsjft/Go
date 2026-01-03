@@ -421,7 +421,7 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 828903312}
         m_TargetAssemblyTypeName: PlayerFor3D, Assembly-CSharp
-        m_MethodName: UI_Undo
+        m_MethodName: UI_HuiQi
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
@@ -433,7 +433,7 @@ MonoBehaviour:
         m_CallState: 2
       - m_Target: {fileID: 828903312}
         m_TargetAssemblyTypeName: PlayerFor3D, Assembly-CSharp
-        m_MethodName: ResetButtonInteractable
+        m_MethodName: ResetButtonInteractableFor
         m_Mode: 2
         m_Arguments:
           m_ObjectArgument: {fileID: 313722041}
@@ -569,7 +569,7 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 828903312}
         m_TargetAssemblyTypeName: PlayerFor3D, Assembly-CSharp
-        m_MethodName: UI_Pass
+        m_MethodName: UI_PassTurn
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
@@ -581,7 +581,7 @@ MonoBehaviour:
         m_CallState: 2
       - m_Target: {fileID: 828903312}
         m_TargetAssemblyTypeName: PlayerFor3D, Assembly-CSharp
-        m_MethodName: ResetButtonInteractable
+        m_MethodName: ResetButtonInteractableFor
         m_Mode: 2
         m_Arguments:
           m_ObjectArgument: {fileID: 368686205}
@@ -805,7 +805,7 @@ MonoBehaviour:
         m_CallState: 2
       - m_Target: {fileID: 828903312}
         m_TargetAssemblyTypeName: PlayerFor3D, Assembly-CSharp
-        m_MethodName: ResetButtonInteractable
+        m_MethodName: ResetButtonInteractableFor
         m_Mode: 2
         m_Arguments:
           m_ObjectArgument: {fileID: 725687346}
@@ -1281,6 +1281,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c8345c407595ae948a93c18227943ca5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  RestartGameButton: {fileID: 1565342584}
+  HuiQiButton: {fileID: 313722041}
+  PassTurnButton: {fileID: 368686205}
+  ResignButton: {fileID: 1124175926}
+  ExitButton: {fileID: 2065616929}
   whatIsBoard:
     serializedVersion: 2
     m_Bits: 8
@@ -1306,9 +1311,6 @@ MonoBehaviour:
   minDistance: 1.5
   maxDistance: 6
   rotate180Duration: 0.35
-  btnUndo: {fileID: 0}
-  btnPass: {fileID: 0}
-  btnResign: {fileID: 0}
 --- !u!135 &828903316
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -1602,7 +1604,7 @@ MonoBehaviour:
         m_CallState: 2
       - m_Target: {fileID: 828903312}
         m_TargetAssemblyTypeName: PlayerFor3D, Assembly-CSharp
-        m_MethodName: ResetButtonInteractable
+        m_MethodName: ResetButtonInteractableFor
         m_Mode: 2
         m_Arguments:
           m_ObjectArgument: {fileID: 1124175926}
@@ -2595,7 +2597,7 @@ MonoBehaviour:
         m_CallState: 2
       - m_Target: {fileID: 828903312}
         m_TargetAssemblyTypeName: PlayerFor3D, Assembly-CSharp
-        m_MethodName: ResetButtonInteractable
+        m_MethodName: ResetButtonInteractableFor
         m_Mode: 2
         m_Arguments:
           m_ObjectArgument: {fileID: 1565342584}
@@ -3234,6 +3236,18 @@ MonoBehaviour:
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
+      - m_Target: {fileID: 828903312}
+        m_TargetAssemblyTypeName: PlayerFor3D, Assembly-CSharp
+        m_MethodName: ResetButtonInteractableFor
+        m_Mode: 2
+        m_Arguments:
+          m_ObjectArgument: {fileID: 2065616929}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.UI.Button, UnityEngine.UI
           m_IntArgument: 0
           m_FloatArgument: 0
           m_StringArgument: 

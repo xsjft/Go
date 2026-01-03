@@ -183,7 +183,7 @@ public class PlayerFor2D : MonoBehaviour
                 if (Input.GetMouseButtonDown(1) && Check_LuoZi(PlayerType)) //Âä×Ó
                 {
                     LuoZiAction(PlayerType, hit.point, hit.normal);
-                    GameManger.instance.SendLuoziInfo(PlayerType, hit);
+                    GameManger.instance.SendLuoziInfo2D(PlayerType, hit);
                 }
                 if (Input.GetMouseButtonDown(2) && Check_HuiQi())
                 {
@@ -1088,6 +1088,7 @@ public class PlayerFor2D : MonoBehaviour
         {
             string win = BlackTurn ? "°×Æå»ñÊ¤" : "ºÚÆå»ñÊ¤";
             GameManger.instance.ShowPopupType2(win);
+            SetGameOverTrue();
         }
     }
 

@@ -42,6 +42,7 @@ public class GameManger : MonoBehaviour
     public Action<Dictionary<int, int>> OnPlayersStatusUpdated;
     public Action OnReadyStatusChanged;
     public Action<int,Vector3,Vector3> OnLuoziRecived;
+    public Action<int> OnLuoziRecived3D;
     public Action OnHuiQiSuccess;
     public Action OnPassTurnRecived;
     public Action OnResignRecived;
@@ -117,7 +118,7 @@ public class GameManger : MonoBehaviour
         if (InGame) return;
         InGame = true;
 
-        SceneManger.instance.SwitchScene("Game");
+        SceneManger.instance.SwitchScene("3dGame");
     }
 
     public void OfflineStart()
@@ -128,7 +129,7 @@ public class GameManger : MonoBehaviour
         IsOnline = false;
         PlayerType = 0;
 
-        SceneManger.instance.SwitchScene("Game");
+        SceneManger.instance.SwitchScene("3dGame");
     }
     #endregion
 
@@ -385,6 +386,15 @@ public class GameManger : MonoBehaviour
             }
         }
 
+        if (msg.StartsWith("LUOZI3D:"))
+        {
+            int idx = int.Parse(msg.Substring("LUOZI3D:".Length)); // 提取idx
+
+            OnLuoziRecived3D?.Invoke(idx);  
+
+            Debug.Log($"收到3D落子信息，idx: {idx}");
+        }
+
         // 收到悔棋请求
         if (msg.StartsWith("HUIQI_REQUEST:"))
         {
@@ -610,7 +620,7 @@ public class GameManger : MonoBehaviour
     #endregion
 
     #region 落子
-    public void SendLuoziInfo(int stoneType, RaycastHit hit)
+    public void SendLuoziInfo2D(int stoneType, RaycastHit hit)
     {
         Vector3 p = hit.point;
         Vector3 n = hit.normal;
@@ -621,6 +631,17 @@ public class GameManger : MonoBehaviour
         stream.Write(data, 0, data.Length);
 
         Debug.Log("发送落子信息: " + msg);
+    }
+
+    public void SendLuoziInfo3D(int idx)
+    {
+        if (!IsOnline) return;
+
+        string msg = $"LUOZI3D:{playerId},{idx}\n";
+        byte[] data = Encoding.UTF8.GetBytes(msg);
+        stream.Write(data, 0, data.Length);
+
+        Debug.Log($"发送落子信息");
     }
     #endregion
 

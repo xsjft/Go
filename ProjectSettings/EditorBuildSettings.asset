@@ -14,4 +14,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Room.unity
     guid: 9f72e54366cbb244b9a0e5c075547985
+  - enabled: 1
+    path: Assets/Scenes/3dGame.unity
+    guid: aefca1019f9a5724dacbd13b6db9a45e
   m_configObjects: {}

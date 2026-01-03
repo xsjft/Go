@@ -4,9 +4,21 @@ using System.IO;
 using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 public class PlayerFor3D : MonoBehaviour
 {
+    [Header("按钮")]
+    [SerializeField] private Button RestartGameButton;
+    [SerializeField] private Button HuiQiButton;
+    [SerializeField] private Button PassTurnButton;
+    [SerializeField] private Button ResignButton;
+    [SerializeField] private Button ExitButton;
+
+    [Header("联机信息")]
+    private int PlayerType;   //1黑2白
+    private bool IsOnline;
+
     [Header("点击检测")]
     [SerializeField] private LayerMask whatIsBoard;
 
@@ -22,8 +34,8 @@ public class PlayerFor3D : MonoBehaviour
     private int tempIdx = -1;
     private GameObject tempStoneObj = null;
 
-    [Header("棋盘点数据 (建议填 Model/p.csv 或 Assets/Model/p.csv)")]
-    [SerializeField] public string csvPath = "Model/p.csv"; // 相对于 Assets/ 的路径更稳
+    [Header("棋盘点数据")]
+    private string csvPath = "Data/p.csv";  // 相对于 StreamingAssets 文件夹的路径
     private string csvFullPath;
 
     [Header("规则/操作")]
@@ -110,7 +122,8 @@ public class PlayerFor3D : MonoBehaviour
 
     private void Awake()
     {
-        csvFullPath = ResolveCsvFullPath(csvPath);
+        // 获取 StreamingAssets 文件夹的绝对路径
+        csvFullPath = Path.Combine(Application.streamingAssetsPath, csvPath);
 
         if (!File.Exists(csvFullPath))
         {
@@ -121,6 +134,26 @@ public class PlayerFor3D : MonoBehaviour
         {
             Log($"CSV FULL PATH = {csvFullPath}");
         }
+
+        SetOnline(GameManger.instance.IsOnline, GameManger.instance.PlayerType);  //初始化联网状态和执子类型
+
+        GameManger.instance.OnLuoziRecived3D+= TryPlaceStone;
+        GameManger.instance.OnHuiQiSuccess += Undo;  //悔棋成功调用两次
+        GameManger.instance.OnHuiQiSuccess += Undo;
+        GameManger.instance.OnPassTurnRecived += Pass;
+        GameManger.instance.OnResignRecived += Resign;
+
+        RestartGameButton.interactable = false;
+        HuiQiButton.interactable = false;
+        PassTurnButton.interactable = false;
+        ResignButton.interactable = false;
+        ExitButton.interactable = false;
+    }
+
+    public void SetOnline(bool IsOnline, int palyerType)
+    {
+        this.IsOnline = IsOnline;
+        this.PlayerType = palyerType;
     }
 
     private void Start()
@@ -142,16 +175,72 @@ public class PlayerFor3D : MonoBehaviour
 
     private void Update()
     {
-        HandleCameraInput();
-
+        //处理UI按钮
+        if (gameOver)
+        {
+            RestartGameButton.interactable = true;
+            HuiQiButton.interactable = false;
+            PassTurnButton.interactable = false;
+            ResignButton.interactable = false;
+            ExitButton.interactable = true;
+        }
 
         if (gameOver) return;
 
-        if (Input.GetKeyDown(undoKey)) Undo();
-        if (Input.GetKeyDown(passKey)) Pass();
-        if (Input.GetKeyDown(resignKey)) Resign();
+        if (CheckTurn())
+        {
+            HuiQiButton.interactable = true;
+            PassTurnButton.interactable = true;
+            ResignButton.interactable = true;
+        }
+        else
+        {
+            HuiQiButton.interactable = false;
+            PassTurnButton.interactable = false;
+            ResignButton.interactable = false;
+        }
 
-        if (Input.GetMouseButtonDown(0))
+        HandleCameraInput();
+
+
+
+        //处理悔棋，过一手，投降
+        if (Input.GetKeyDown(undoKey) && CheckTurn()) 
+        {
+            if (IsOnline)
+            {
+                GameManger.instance.SendHuiQi();
+            }
+            else 
+            {
+                Undo();
+                Undo();
+            } 
+        }
+        if (Input.GetKeyDown(passKey) && CheckTurn())
+        {
+            if (IsOnline)
+            {
+                GameManger.instance.SendPassTurn();
+            }
+            else
+            {
+                Pass();
+            }
+        }
+        if (Input.GetKeyDown(resignKey) && CheckTurn())
+        {
+            if (IsOnline)
+            {
+                GameManger.instance.SendResign();
+            }
+            else
+            {
+                Resign();
+            }
+        }
+        //处理落子
+        if (Input.GetMouseButtonDown(0) && CheckTurn())
         {
             if (!TryGetHit(out RaycastHit hit)) return;
 
@@ -184,6 +273,22 @@ public class PlayerFor3D : MonoBehaviour
 
     }
 
+    //检查是否是自己回合（单机模式始终是）
+    private bool CheckTurn()
+    {
+        if (!IsOnline)
+        {
+            return true;
+        }
+        if((blackTurn && PlayerType == 1) || (!blackTurn && PlayerType == 2))
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
 
     // 相机控制
     private void InitCameraOrbit()
@@ -250,33 +355,6 @@ public class PlayerFor3D : MonoBehaviour
 
         cam.transform.position = pos;
         cam.transform.LookAt(cameraTarget.position);
-    }
-
-    
-
-    // =========================
-    // CSV 路径处理（支持相对/Assets/前缀/绝对路径）
-    // =========================
-
-    private string ResolveCsvFullPath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return path;
-
-        // 绝对路径直接用
-        if (Path.IsPathRooted(path)) return path;
-
-        // 允许用户填 "Assets/Model/p.csv" -> 转成相对于工程根目录
-        // Application.dataPath = ".../<Project>/Assets"
-        // 所以如果 path 以 "Assets/" 开头，就拼到工程根目录
-        if (path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
-            path.StartsWith("Assets\\", StringComparison.OrdinalIgnoreCase))
-        {
-            string projectRoot = Directory.GetParent(Application.dataPath).FullName;
-            return Path.Combine(projectRoot, path);
-        }
-
-        // 其它：认为是相对 Assets/ 的路径，比如 "Model/p.csv"
-        return Path.Combine(Application.dataPath, path);
     }
 
     // =========================
@@ -424,6 +502,11 @@ public class PlayerFor3D : MonoBehaviour
         // 合法：落子生效
         moveNumber++;
         RebuildVisualFromState(stoneType);
+        //如果是联网模式，向对方发送落子位置
+        if (IsOnline)
+        {
+            GameManger.instance.SendLuoziInfo3D(idx);
+        }
 
         // 记录历史/悔棋
         boardHistory.Add(newState);
@@ -728,8 +811,9 @@ public class PlayerFor3D : MonoBehaviour
 
         ClearTempStone();
 
+        string win = blackTurn ? "白棋获胜" : "黑棋获胜";
+        GameManger.instance.ShowPopupType2(win);
         gameOver = true;
-        Log(blackTurn ? "[认输] 黑方认输，白方胜。" : "[认输] 白方认输，黑方胜。");
     }
 
     private void EndGameByTwoPasses()
@@ -738,8 +822,7 @@ public class PlayerFor3D : MonoBehaviour
 
         var result = CalculateAreaScore(komi, out float blackScore, out float whiteScore);
 
-        Log("[终局] 双方连续停一手，开始算分。");
-        Log(result);
+        GameManger.instance.ShowPopupType2("双方连续停一手，开始算分。\n"+result);
     }
 
     private string CalculateAreaScore(float komiValue, out float blackScore, out float whiteScore)
@@ -886,30 +969,77 @@ public class PlayerFor3D : MonoBehaviour
     // =========================
     // UI 桥接
     // =========================
-
-    [Header("UI（可选）")]
-    [SerializeField] private UnityEngine.UI.Button btnUndo;
-    [SerializeField] private UnityEngine.UI.Button btnPass;
-    [SerializeField] private UnityEngine.UI.Button btnResign;
-
-    // 按钮点的是 UI_XXX，而不是直接点核心逻辑
-    public void UI_Undo()
+    public void UI_HuiQi()
     {
-        Undo();
-        RefreshAllButtons();
-        
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
+            {
+                GameManger.instance.SendHuiQi();
+            }
+        }
+        else
+        {
+            Undo();
+            Undo();
+        }
     }
 
-    public void UI_Pass()
+    public void UI_PassTurn()
     {
-        Pass();
-        RefreshAllButtons();
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
+            {
+                Pass();
+                GameManger.instance.SendPassTurn();
+            }
+        }
+        else
+        {
+            Pass();
+        }
     }
 
     public void UI_Resign()
     {
-        Resign();
-        RefreshAllButtons();
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
+            {
+                GameManger.instance.SendResign();
+            }
+        }
+        else
+        {
+            string win = blackTurn ? "白棋获胜" : "黑棋获胜";
+            GameManger.instance.ShowPopupType2(win);
+            gameOver = true;
+        }
+    }
+
+    public void UI_ReStartGame()
+    {
+        if (IsOnline)
+        {
+            GameManger.instance.SendRestartGame();
+        }
+        else
+        {
+            SceneManger.instance.SwitchScene("3dGame");
+        }
+    }
+    public void UI_Exit()
+    {
+        if (IsOnline)
+        {
+            GameManger.instance.SendExitRoom();
+            SceneManger.instance.SwitchScene("Room");
+        }
+        else
+        {
+            SceneManger.instance.SwitchScene("Logic");
+        }
     }
 
     public void UI_RotateSphere180()
@@ -918,25 +1048,6 @@ public class PlayerFor3D : MonoBehaviour
             StartCoroutine(RotateSphere180Coroutine());
     }
 
-
-
-    /// 重置按钮可点击状态
-    public void ResetButtonInteractable(UnityEngine.UI.Button clickedButton)
-    {
-        // 这里先给一个“最小可用”的策略：
-        // - 游戏结束：全部禁用
-        // - 其它：默认都可用（你后面想细分规则再加）
-        if (clickedButton == null) return;
-
-        if (gameOver)
-        {
-            clickedButton.interactable = false;
-            return;
-        }
-
-        // 你如果想实现“点完立刻变灰 0.2 秒”，也可以在这里加协程
-        clickedButton.interactable = true;
-    }
     private System.Collections.IEnumerator RotateSphere180Coroutine()
     {
         rotating = true;
@@ -960,26 +1071,10 @@ public class PlayerFor3D : MonoBehaviour
         rotating = false;
     }
 
-
-
-    public void UI_ReStartGame()
+    public void ResetButtonInteractableFor(Button btn)
     {
-        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        if (btn == null) return;
+        StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
     }
-
-    public void UI_Exit()
-    {
-        // 返回主逻辑 / 主菜单
-        SceneManager.LoadScene("Logic");
-    }
-
-    /// 统一刷新所有按钮
-    private void RefreshAllButtons()
-    {
-        if (btnUndo != null) btnUndo.interactable = !gameOver && (undoStack != null && undoStack.Count > 1);
-        if (btnPass != null) btnPass.interactable = !gameOver;
-        if (btnResign != null) btnResign.interactable = !gameOver;
-    }
-
 
 }
