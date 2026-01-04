@@ -6,143 +6,172 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
+/// <summary>
+/// 3D围棋游戏主控制器
+/// 负责处理棋盘逻辑、玩家输入、规则判定、联机同步等功能
+/// </summary>
 public class PlayerFor3D : MonoBehaviour
 {
-    [Header("按钮")]
+    #region 序列化字段 
+
+    [Header("UI按钮")]
     [SerializeField] private Button RestartGameButton;
     [SerializeField] private Button HuiQiButton;
     [SerializeField] private Button PassTurnButton;
     [SerializeField] private Button ResignButton;
     [SerializeField] private Button ExitButton;
 
-    [Header("联机信息")]
-    private int PlayerType;   //1黑2白
-    private bool IsOnline;
-
-    [Header("点击检测")]
-    [SerializeField] private LayerMask whatIsBoard;
-
-    [Header("棋子Prefab")]
+    [Header("棋子预制体")]
     [SerializeField] private GameObject BlackStone;
     [SerializeField] private GameObject WhiteStone;
     [SerializeField] private Vector3 StoneSize = Vector3.one;
 
-    [Header("预下棋（Temp）")]
+    [Header("预下棋（临时显示）")]
     [SerializeField] private GameObject TempBlackStone;   // black_tem prefab
     [SerializeField] private GameObject TempWhiteStone;   // white_tem prefab
 
-    private int tempIdx = -1;
-    private GameObject tempStoneObj = null;
+    [Header("点击检测")]
+    [SerializeField] private LayerMask whatIsBoard;
 
-    [Header("棋盘点数据")]
-    private string csvPath = "Data/p.csv";  // 相对于 StreamingAssets 文件夹的路径
-    private string csvFullPath;
+    [Header("规则设置")]
+    [SerializeField] private bool useSuperKo = true;              // 超级劫：局面不可重复
+    [SerializeField] private bool allowSuicide = false;           // 一般围棋不允许自杀
+    [SerializeField] private bool rollbackHistoryOnUndo = true;   // 悔棋会回滚超级劫历史
 
-    [Header("规则/操作")]
-    [SerializeField] private bool useSuperKo = true;         // 超级劫：局面不可重复
-    [SerializeField] private bool allowSuicide = false;      // 一般围棋不允许自杀
-    [SerializeField] private bool rollbackHistoryOnUndo = true; // ? 更像2D：悔棋会回滚超级劫历史
+    [Header("操作快捷键")]
     [SerializeField] private KeyCode undoKey = KeyCode.Z;
     [SerializeField] private KeyCode passKey = KeyCode.Space;
     [SerializeField] private KeyCode resignKey = KeyCode.R;
 
-    [Header("终局/算分")]
-    [SerializeField] private bool endOnTwoPasses = true; // 连续两次停一手就终局
-    [SerializeField] private float komi = 7.5f;          // 贴目（按需要改）
+    [Header("终局设置")]
+    [SerializeField] private bool endOnTwoPasses = true;          // 连续两次停一手就终局
+    [SerializeField] private float komi = 7.5f;                   // 贴目（按需要改）
 
-    private int consecutivePasses = 0;                   // 连续停一手次数（双方合计）
-
-
-    [Header("日志")]
+    [Header("日志设置")]
     [SerializeField] private bool enableLog = true;
     [SerializeField] private bool logGroupsOnMove = false;
 
     [Header("相机控制")]
-    [SerializeField] private Transform cameraTarget;  // 为空则用本物体 transform
-    [SerializeField] private float rotateSpeed = 180f; // 度/秒（可调）
-    [SerializeField] private float zoomSpeed = 0.1f;     // 缩放速度（可调）
-    [SerializeField] private float minDistance = 2.5f; // 最小距离
-    [SerializeField] private float maxDistance = 6f;  // 最大距离
+    [SerializeField] private Transform cameraTarget;              // 为空则用本物体 transform
+    [SerializeField] private float rotateSpeed = 180f;            // 度/秒
+    [SerializeField] private float zoomSpeed = 0.1f;              // 缩放速度
+    [SerializeField] private float minDistance = 2.5f;            // 最小距离
+    [SerializeField] private float maxDistance = 6f;              // 最大距离
+    [SerializeField] private float rotate180Duration = 12f;       // 180度旋转动画时长
 
-    [SerializeField] private float rotate180Duration = 12f;
-    private bool rotating = false;
+    #endregion
 
-    private float yaw;
-    private float pitch;
-    private float distance;
-    private Camera cam;
+    #region 内部数据结构
 
-
-    // =========================
-    // 内部数据结构
-    // =========================
-
+    /// <summary>
+    /// 棋盘点数据
+    /// </summary>
     private class PointData
     {
-        public int index;
-        public Vector3 localPos;
-        public List<int> neighbors = new List<int>();
+        public int index;                           // 点索引
+        public Vector3 localPos;                    // 本地坐标
+        public List<int> neighbors = new List<int>(); // 邻接点索引
     }
 
+    /// <summary>
+    /// 棋串信息
+    /// </summary>
     private class GroupInfo
     {
-        public int color; // 1黑 2白
-        public List<int> stones = new List<int>();
-        public HashSet<int> liberties = new HashSet<int>();
+        public int color;                           // 1黑 2白
+        public List<int> stones = new List<int>();  // 棋串包含的所有棋子索引
+        public HashSet<int> liberties = new HashSet<int>(); // 气（空点索引）
     }
 
+    /// <summary>
+    /// 游戏状态快照（用于悔棋）
+    /// </summary>
     private struct GameState
     {
-        public int[] stoneType;
-        public bool blackTurn;
-        public HashSet<string> boardHistory;
-        public string boardState;
-        public int moveNumber;
-
-        public int consecutivePasses;
-        public bool gameOver;
+        public int[] stoneType;                     // 棋盘状态数组
+        public bool blackTurn;                      // 是否黑方回合
+        public HashSet<string> boardHistory;        // 历史局面（超级劫）
+        public string boardState;                   // 当前局面字符串
+        public int moveNumber;                      // 手数
+        public int consecutivePasses;               // 连续停一手次数
+        public bool gameOver;                       // 游戏是否结束
     }
 
-    private List<PointData> points;                 // points[index]
+    /// <summary>
+    /// 非法落子原因
+    /// </summary>
+    private enum IllegalReason
+    {
+        None,       // 合法
+        Occupied,   // 已有棋子
+        Suicide,    // 自杀
+        SuperKo     // 超级劫
+    }
+
+    #endregion
+
+    #region 私有字段
+
+    // 棋盘数据
+    private string csvPath = "Data/p.csv";          // 相对于 StreamingAssets 文件夹的路径
+    private string csvFullPath;                     // CSV完整路径
+    private List<PointData> points;                 // 棋盘所有点数据
     private int[] stoneType;                        // 0空 1黑 2白
     private Dictionary<int, GameObject> stoneObj;   // index -> 棋子对象
 
-    private bool blackTurn = true;
-    private bool gameOver = false;
+    // 游戏状态
+    private bool blackTurn = true;                  // 当前是否黑方回合
+    private bool gameOver = false;                  // 游戏是否结束
+    private int moveNumber = 0;                     // 当前手数
+    private int consecutivePasses = 0;              // 连续停一手次数（双方合计）
 
-    // 历史局面（超级劫）
-    private HashSet<string> boardHistory = new HashSet<string>();
-    // 用于悔棋：保存每一步的完整状态（像2D那样回滚）
-    private Stack<GameState> undoStack = new Stack<GameState>();
-    private int moveNumber = 0;
+    // 历史记录
+    private HashSet<string> boardHistory = new HashSet<string>(); // 历史局面（超级劫）
+    private Stack<GameState> undoStack = new Stack<GameState>(); // 悔棋栈
 
-    // =========================
-    // Unity 生命周期
-    // =========================
+    // 临时预下棋
+    private int tempIdx = -1;                       // 预下棋的点索引
+    private GameObject tempStoneObj = null;         // 预下棋对象
+
+    // 联机信息
+    private int PlayerType;                         // 1黑2白
+    private bool IsOnline;                          // 是否联机模式
+
+    // 相机控制
+    private Camera cam;
+    private float yaw;                              // 水平旋转角
+    private float pitch;                            // 垂直旋转角
+    private float distance;                         // 相机距离
+    private bool rotating = false;                  // 是否正在执行180度旋转动画
+
+    #endregion
+
+    #region Unity生命周期
 
     private void Awake()
     {
-        // 获取 StreamingAssets 文件夹的绝对路径
+        // 初始化CSV路径
         csvFullPath = Path.Combine(Application.streamingAssetsPath, csvPath);
-
         if (!File.Exists(csvFullPath))
         {
-            Debug.LogError($"CSV not found: {csvFullPath}\n" +
-                           $"建议：把 p.csv 放到 Assets/Model/p.csv，然后在 Inspector 填 Model/p.csv");
+            Debug.LogError($"CSV not found: {csvFullPath}\n建议：把 p.csv 放到 Assets/Model/p.csv，然后在 Inspector 填 Model/p.csv");
         }
         else
         {
             Log($"CSV FULL PATH = {csvFullPath}");
         }
 
-        SetOnline(GameManger.instance.IsOnline, GameManger.instance.PlayerType);  //初始化联网状态和执子类型
+        // 初始化联网状态和执子类型
+        SetOnline(GameManger.instance.IsOnline, GameManger.instance.PlayerType);
 
-        GameManger.instance.OnLuoziRecived3D+= TryPlaceStone;
-        GameManger.instance.OnHuiQiSuccess += Undo;  //悔棋成功调用两次
+        // 注册联机事件
+        GameManger.instance.OnLuoziRecived3D += TryPlaceStone;
+        GameManger.instance.OnHuiQiSuccess += Undo;  // 悔棋成功调用两次
         GameManger.instance.OnHuiQiSuccess += Undo;
         GameManger.instance.OnPassTurnRecived += Pass;
         GameManger.instance.OnResignRecived += Resign;
 
+        // 初始化按钮状态
         RestartGameButton.interactable = false;
         HuiQiButton.interactable = false;
         PassTurnButton.interactable = false;
@@ -150,14 +179,9 @@ public class PlayerFor3D : MonoBehaviour
         ExitButton.interactable = false;
     }
 
-    public void SetOnline(bool IsOnline, int palyerType)
-    {
-        this.IsOnline = IsOnline;
-        this.PlayerType = palyerType;
-    }
-
     private void Start()
     {
+        // 加载棋盘数据
         LoadBoardFromCSV();
         stoneType = new int[points.Count];
         stoneObj = new Dictionary<int, GameObject>(points.Count);
@@ -165,207 +189,54 @@ public class PlayerFor3D : MonoBehaviour
         // 初始空局面：入历史、入悔棋栈
         string initState = GetBoardState();
         boardHistory.Add(initState);
+        PushUndoState(initState); // 让"第一次悔棋"回到空盘
 
-        PushUndoState(initState); // 让“第一次悔棋”回到空盘
         Log($"Board loaded. Points={points.Count}");
 
+        // 初始化相机
         InitCameraOrbit();
-
     }
 
     private void Update()
     {
-        //处理UI按钮
-        if (gameOver)
-        {
-            RestartGameButton.interactable = true;
-            HuiQiButton.interactable = false;
-            PassTurnButton.interactable = false;
-            ResignButton.interactable = false;
-            ExitButton.interactable = true;
-        }
+        // 更新UI按钮状态
+        UpdateButtonStates();
 
+        // 游戏结束则不处理输入
         if (gameOver) return;
 
-        if (CheckTurn())
-        {
-            HuiQiButton.interactable = true;
-            PassTurnButton.interactable = true;
-            ResignButton.interactable = true;
-        }
-        else
-        {
-            HuiQiButton.interactable = false;
-            PassTurnButton.interactable = false;
-            ResignButton.interactable = false;
-        }
-
+        // 处理相机输入
         HandleCameraInput();
 
+        // 处理键盘输入
+        HandleKeyboardInput();
 
-
-        //处理悔棋，过一手，投降
-        if (Input.GetKeyDown(undoKey) && CheckTurn()) 
-        {
-            if (IsOnline)
-            {
-                GameManger.instance.SendHuiQi();
-            }
-            else 
-            {
-                Undo();
-                Undo();
-            } 
-        }
-        if (Input.GetKeyDown(passKey) && CheckTurn())
-        {
-            if (IsOnline)
-            {
-                GameManger.instance.SendPassTurn();
-            }
-            else
-            {
-                Pass();
-            }
-        }
-        if (Input.GetKeyDown(resignKey) && CheckTurn())
-        {
-            if (IsOnline)
-            {
-                GameManger.instance.SendResign();
-            }
-            else
-            {
-                Resign();
-            }
-        }
-        //处理落子
-        if (Input.GetMouseButtonDown(0) && CheckTurn())
-        {
-            if (!TryGetHit(out RaycastHit hit)) return;
-
-            int idx = WorldPointToClosestIndex(hit.point);
-
-            // 点到已有棋子：取消预下棋（或你也可以选择无视）
-            if (stoneType[idx] != 0)
-            {
-                ClearTempStone();
-                return;
-            }
-
-            // 第一次点：生成预下棋
-            if (tempIdx < 0)
-            {
-                ShowTempStone(idx);
-                return;
-            }
-
-            // 第二次点同一位置：确认落子
-            if (idx == tempIdx)
-            {
-                ConfirmTempStone();
-                return;
-            }
-
-            // 第二次点不同位置：移动预下棋
-            ShowTempStone(idx);
-        }
-
+        // 处理鼠标点击落子
+        HandleMouseInput();
     }
 
-    //检查是否是自己回合（单机模式始终是）
-    private bool CheckTurn()
+    #endregion
+
+    #region 初始化
+
+    /// <summary>
+    /// 设置联机模式和玩家类型
+    /// </summary>
+    public void SetOnline(bool isOnline, int playerType)
     {
-        if (!IsOnline)
-        {
-            return true;
-        }
-        if((blackTurn && PlayerType == 1) || (!blackTurn && PlayerType == 2))
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
+        this.IsOnline = isOnline;
+        this.PlayerType = playerType;
     }
 
-    // 相机控制
-    private void InitCameraOrbit()
-    {
-        cam = Camera.main;
-        if (cam == null)
-        {
-            Debug.LogError("Main Camera not found. 请给相机设置 Tag=MainCamera");
-            return;
-        }
-
-        if (cameraTarget == null) cameraTarget = transform;
-
-        Vector3 offset = cam.transform.position - cameraTarget.position;
-        distance = Mathf.Clamp(offset.magnitude, minDistance, maxDistance);
-
-        // 从当前相机位置反推 yaw / pitch
-        Vector3 dir = offset.normalized;
-        pitch = Mathf.Asin(dir.y) * Mathf.Rad2Deg;
-        yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
-
-        // 不再限制 pitch，保持自由旋转
-        yaw = Mathf.Repeat(yaw, 360f);
-        pitch = Mathf.Repeat(pitch, 360f);
-
-        UpdateCameraTransform();
-    }
-
-    private void HandleCameraInput()
-    {
-        if (cam == null) return;
-        if (cameraTarget == null) cameraTarget = transform;
-
-        // 右键按住旋转
-        if (Input.GetMouseButton(1))
-        {
-            float mx = Input.GetAxis("Mouse X");
-            float my = Input.GetAxis("Mouse Y");
-
-            yaw += mx * rotateSpeed * Time.deltaTime;
-            pitch -= my * rotateSpeed * Time.deltaTime;
-
-            // 允许无限上下/左右，为了避免 pitch 无限增大导致数值过大，做一个 0~360 的循环即可
-            yaw = Mathf.Repeat(yaw, 360f);
-            pitch = Mathf.Repeat(pitch, 360f);
-
-        }
-
-        // 滚轮缩放
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (Mathf.Abs(scroll) > 0.0001f)
-        {
-            distance -= scroll * zoomSpeed;
-            distance = Mathf.Clamp(distance, minDistance, maxDistance);
-        }
-
-        UpdateCameraTransform();
-    }
-
-    private void UpdateCameraTransform()
-    {
-        Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
-        Vector3 pos = cameraTarget.position + rot * new Vector3(0f, 0f, -distance);
-
-        cam.transform.position = pos;
-        cam.transform.LookAt(cameraTarget.position);
-    }
-
-    // =========================
-    // CSV读取
-    // =========================
-
+    /// <summary>
+    /// 从CSV加载棋盘数据
+    /// </summary>
     private void LoadBoardFromCSV()
     {
         var lines = File.ReadAllLines(csvFullPath);
         if (lines.Length <= 1) throw new Exception("CSV empty or only header.");
 
+        // 找到最大索引
         int maxIndex = -1;
         for (int i = 1; i < lines.Length; i++)
         {
@@ -376,6 +247,7 @@ public class PlayerFor3D : MonoBehaviour
 
         points = new List<PointData>(new PointData[maxIndex + 1]);
 
+        // 解析每一行
         for (int i = 1; i < lines.Length; i++)
         {
             var parts = lines[i].Split(',');
@@ -391,6 +263,7 @@ public class PlayerFor3D : MonoBehaviour
                 localPos = new Vector3(x, y, z)
             };
 
+            // 解析邻接点
             for (int n = 4; n < parts.Length; n++)
             {
                 if (int.TryParse(parts[n].Trim(), out int neighborIndex))
@@ -402,6 +275,7 @@ public class PlayerFor3D : MonoBehaviour
             points[index] = pd;
         }
 
+        // 验证数据完整性
         for (int i = 0; i < points.Count; i++)
         {
             if (points[i] == null)
@@ -409,16 +283,126 @@ public class PlayerFor3D : MonoBehaviour
         }
     }
 
-    // =========================
-    // 输入与映射
-    // =========================
+    #endregion
 
+    #region 输入处理
+
+    /// <summary>
+    /// 更新UI按钮状态
+    /// </summary>
+    private void UpdateButtonStates()
+    {
+        if (gameOver)
+        {
+            RestartGameButton.interactable = true;
+            HuiQiButton.interactable = false;
+            PassTurnButton.interactable = false;
+            ResignButton.interactable = false;
+            ExitButton.interactable = true;
+            return;
+        }
+
+        bool isMyTurn = CheckTurn();
+        HuiQiButton.interactable = isMyTurn;
+        PassTurnButton.interactable = isMyTurn;
+        ResignButton.interactable = isMyTurn;
+    }
+
+    /// <summary>
+    /// 处理键盘输入
+    /// </summary>
+    private void HandleKeyboardInput()
+    {
+        if (!CheckTurn()) return;
+
+        // 悔棋
+        if (Input.GetKeyDown(undoKey))
+        {
+            if (IsOnline)
+                GameManger.instance.SendHuiQi();
+            else
+            {
+                Undo();
+                Undo();
+            }
+        }
+
+        // 停一手
+        if (Input.GetKeyDown(passKey))
+        {
+            if (IsOnline)
+                GameManger.instance.SendPassTurn();
+            else
+                Pass();
+        }
+
+        // 认输
+        if (Input.GetKeyDown(resignKey))
+        {
+            if (IsOnline)
+                GameManger.instance.SendResign();
+            else
+                Resign();
+        }
+    }
+
+    /// <summary>
+    /// 处理鼠标点击落子
+    /// </summary>
+    private void HandleMouseInput()
+    {
+        if (!Input.GetMouseButtonDown(0) || !CheckTurn()) return;
+
+        if (!TryGetHit(out RaycastHit hit)) return;
+
+        int idx = WorldPointToClosestIndex(hit.point);
+
+        // 点到已有棋子：取消预下棋
+        if (stoneType[idx] != 0)
+        {
+            ClearTempStone();
+            return;
+        }
+
+        // 第一次点：生成预下棋
+        if (tempIdx < 0)
+        {
+            ShowTempStone(idx);
+            return;
+        }
+
+        // 第二次点同一位置：确认落子
+        if (idx == tempIdx)
+        {
+            ConfirmTempStone();
+            return;
+        }
+
+        // 第二次点不同位置：移动预下棋
+        ShowTempStone(idx);
+    }
+
+    /// <summary>
+    /// 检查是否是自己回合（单机模式始终是）
+    /// </summary>
+    private bool CheckTurn()
+    {
+        if (!IsOnline) return true;
+        return (blackTurn && PlayerType == 1) || (!blackTurn && PlayerType == 2);
+    }
+
+    /// <summary>
+    /// 射线检测棋盘
+    /// </summary>
     private bool TryGetHit(out RaycastHit hit)
     {
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
         return Physics.Raycast(ray, out hit, Mathf.Infinity, whatIsBoard);
     }
 
+    /// <summary>
+    /// 世界坐标转换为最近的棋盘点索引
+    /// </summary>
     private int WorldPointToClosestIndex(Vector3 worldPoint)
     {
         int closest = -1;
@@ -438,22 +422,18 @@ public class PlayerFor3D : MonoBehaviour
         return closest;
     }
 
-    // =========================
-    // 核心：落子与规则 + 日志
-    // =========================
+    #endregion
 
-    private enum IllegalReason
-    {
-        None,
-        Occupied,
-        Suicide,
-        SuperKo
-    }
+    #region 核心：落子与规则
 
+    /// <summary>
+    /// 尝试在指定位置落子
+    /// </summary>
     private void TryPlaceStone(int idx)
     {
         if (idx < 0 || idx >= stoneType.Length) return;
 
+        // 检查位置是否已占用
         if (stoneType[idx] != 0)
         {
             Log($"[非法] 点 {idx} 已有棋子。");
@@ -483,7 +463,6 @@ public class PlayerFor3D : MonoBehaviour
             int myHead = headOf[idx];
             if (myHead < 0 || !groupsAfterCapture.ContainsKey(myHead) || groupsAfterCapture[myHead].liberties.Count == 0)
             {
-                // 自杀（注意：如果提子后有气，则不会进这里）
                 Rollback(before, beforeState);
                 Log($"[非法] 自杀禁手：落子点 {idx}（{ColorName(color)}）无气。");
                 return;
@@ -502,7 +481,8 @@ public class PlayerFor3D : MonoBehaviour
         // 合法：落子生效
         moveNumber++;
         RebuildVisualFromState(stoneType);
-        //如果是联网模式，向对方发送落子位置
+
+        // 如果是联网模式，向对方发送落子位置
         if (IsOnline)
         {
             GameManger.instance.SendLuoziInfo3D(idx);
@@ -520,6 +500,9 @@ public class PlayerFor3D : MonoBehaviour
         blackTurn = !blackTurn;
     }
 
+    /// <summary>
+    /// 回滚到落子前状态
+    /// </summary>
     private void Rollback(int[] before, string beforeState)
     {
         stoneType = before;
@@ -527,6 +510,9 @@ public class PlayerFor3D : MonoBehaviour
         // 注意：beforeState 本来就在历史里，不需要改 boardHistory
     }
 
+    /// <summary>
+    /// 提取相邻的无气对方棋串
+    /// </summary>
     private List<int> CaptureAdjacentOpponentGroups(
         int placedIdx,
         int opponentColor,
@@ -561,10 +547,13 @@ public class PlayerFor3D : MonoBehaviour
         return capturedStones;
     }
 
-    // =========================
-    // 分组（BFS）+ stone->head 映射
-    // =========================
+    #endregion
 
+    #region 分组算法（BFS）
+
+    /// <summary>
+    /// 构建棋串分组（BFS）并生成 stone->head 映射
+    /// </summary>
     private Dictionary<int, GroupInfo> BuildGroups(out int[] headOf)
     {
         var groups = new Dictionary<int, GroupInfo>();
@@ -613,18 +602,23 @@ public class PlayerFor3D : MonoBehaviour
         return groups;
     }
 
-    // =========================
-    // 可视化（重建式，稳定）
-    // =========================
+    #endregion
 
+    #region 可视化
+
+    /// <summary>
+    /// 根据状态数组重建所有棋子可视化对象
+    /// </summary>
     private void RebuildVisualFromState(int[] state)
     {
+        // 销毁所有现有棋子
         foreach (var kv in stoneObj)
         {
             if (kv.Value != null) Destroy(kv.Value);
         }
         stoneObj.Clear();
 
+        // 生成新棋子
         for (int i = 0; i < state.Length; i++)
         {
             if (state[i] == 0) continue;
@@ -632,6 +626,27 @@ public class PlayerFor3D : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 在指定位置生成棋子对象
+    /// </summary>
+    private void SpawnStoneAt(int idx, int color)
+    {
+        Vector3 worldPos = transform.TransformPoint(points[idx].localPos);
+
+        // 用球心->点 做法线，避免 hit.normal 导致邻居棋子"贴歪"
+        Vector3 normal = (worldPos - transform.position).normalized;
+        Quaternion rot = Quaternion.LookRotation(normal, Vector3.forward);
+
+        GameObject prefab = (color == 1) ? BlackStone : WhiteStone;
+        GameObject go = Instantiate(prefab, worldPos, rot, transform);
+        go.transform.localScale = StoneSize;
+
+        stoneObj[idx] = go;
+    }
+
+    /// <summary>
+    /// 清除临时预下棋对象
+    /// </summary>
     private void ClearTempStone()
     {
         if (tempStoneObj != null) Destroy(tempStoneObj);
@@ -639,6 +654,9 @@ public class PlayerFor3D : MonoBehaviour
         tempIdx = -1;
     }
 
+    /// <summary>
+    /// 显示预下棋（临时棋子）
+    /// </summary>
     private void ShowTempStone(int idx)
     {
         // 只允许在空点预下
@@ -666,15 +684,15 @@ public class PlayerFor3D : MonoBehaviour
         Quaternion rot = Quaternion.LookRotation(normal, Vector3.forward);
 
         GameObject go = Instantiate(prefab, worldPos, rot, transform);
-
-        // 预下棋与正式棋同尺寸（如果你的 prefab 自带缩放不为1，这里统一强制）
         go.transform.localScale = StoneSize;
 
         tempStoneObj = go;
         tempIdx = idx;
     }
 
-
+    /// <summary>
+    /// 确认预下棋，正式落子
+    /// </summary>
     private void ConfirmTempStone()
     {
         if (tempIdx < 0) return;
@@ -684,26 +702,13 @@ public class PlayerFor3D : MonoBehaviour
         TryPlaceStone(idx);       // 走你原来的完整规则/提子/劫/日志/入栈
     }
 
+    #endregion
 
-    private void SpawnStoneAt(int idx, int color)
-    {
-        Vector3 worldPos = transform.TransformPoint(points[idx].localPos);
+    #region 局面序列化
 
-        // 用球心->点 做法线，避免 hit.normal 导致邻居棋子“贴歪”
-        Vector3 normal = (worldPos - transform.position).normalized;
-        Quaternion rot = Quaternion.LookRotation(normal, Vector3.forward);
-
-        GameObject prefab = (color == 1) ? BlackStone : WhiteStone;
-        GameObject go = Instantiate(prefab, worldPos, rot, transform);
-        go.transform.localScale = StoneSize;
-
-        stoneObj[idx] = go;
-    }
-
-    // =========================
-    // 局面序列化
-    // =========================
-
+    /// <summary>
+    /// 获取当前棋盘状态字符串（用于超级劫判断）
+    /// </summary>
     private string GetBoardState()
     {
         StringBuilder sb = new StringBuilder(stoneType.Length);
@@ -714,6 +719,9 @@ public class PlayerFor3D : MonoBehaviour
         return sb.ToString();
     }
 
+    /// <summary>
+    /// 从状态字符串加载棋盘
+    /// </summary>
     private void LoadBoardState(string state)
     {
         if (state == null || state.Length != stoneType.Length)
@@ -726,10 +734,13 @@ public class PlayerFor3D : MonoBehaviour
         RebuildVisualFromState(stoneType);
     }
 
-    // =========================
-    // 悔棋/弃权/认输（更像2D：悔棋回滚完整状态）
-    // =========================
+    #endregion
 
+    #region 悔棋/停一手/认输
+
+    /// <summary>
+    /// 保存当前状态到悔棋栈
+    /// </summary>
     private void PushUndoState(string boardState)
     {
         var snap = new GameState
@@ -739,14 +750,15 @@ public class PlayerFor3D : MonoBehaviour
             boardState = boardState,
             boardHistory = rollbackHistoryOnUndo ? new HashSet<string>(boardHistory) : null,
             moveNumber = moveNumber,
-
             consecutivePasses = consecutivePasses,
             gameOver = gameOver
         };
         undoStack.Push(snap);
     }
 
-
+    /// <summary>
+    /// 悔棋（回退一步）
+    /// </summary>
     public void Undo()
     {
         if (undoStack.Count <= 1)
@@ -755,7 +767,7 @@ public class PlayerFor3D : MonoBehaviour
             return;
         }
 
-        // 弹出“当前局面”
+        // 弹出"当前局面"
         undoStack.Pop();
 
         // 回到上一个快照
@@ -772,12 +784,14 @@ public class PlayerFor3D : MonoBehaviour
         }
 
         RebuildVisualFromState(stoneType);
-
         ClearTempStone();
 
         Log($"[悔棋] 回到第 {moveNumber} 手。轮到：{(blackTurn ? "黑" : "白")}");
     }
 
+    /// <summary>
+    /// 停一手（弃权）
+    /// </summary>
     public void Pass()
     {
         if (gameOver) return;
@@ -805,10 +819,11 @@ public class PlayerFor3D : MonoBehaviour
         }
     }
 
-
+    /// <summary>
+    /// 认输
+    /// </summary>
     public void Resign()
     {
-
         ClearTempStone();
 
         string win = blackTurn ? "白棋获胜" : "黑棋获胜";
@@ -816,17 +831,28 @@ public class PlayerFor3D : MonoBehaviour
         gameOver = true;
     }
 
+    /// <summary>
+    /// 双方连续停一手，终局算分
+    /// </summary>
     private void EndGameByTwoPasses()
     {
         gameOver = true;
 
         var result = CalculateAreaScore(komi, out float blackScore, out float whiteScore);
 
-        GameManger.instance.ShowPopupType2("双方连续停一手，开始算分。\n"+result);
+        GameManger.instance.ShowPopupType2("双方各停一手，\n游戏结束。\n\n" + result);
     }
 
+    #endregion
+
+    #region 终局计分
+
+    /// <summary>
+    /// 计算数子法得分（区域计分）
+    /// </summary>
     private string CalculateAreaScore(float komiValue, out float blackScore, out float whiteScore)
     {
+        // 统计棋子数
         int blackStones = 0, whiteStones = 0;
         for (int i = 0; i < stoneType.Length; i++)
         {
@@ -894,160 +920,99 @@ public class PlayerFor3D : MonoBehaviour
         else if (whiteScore > blackScore) winner = $"白胜 {diff:0.0}";
         else winner = "平局";
 
-        return $"[算分] 黑：棋子{blackStones}+领地{blackTerr}={blackScore:0.0}，白：棋子{whiteStones}+领地{whiteTerr}+贴目{komiValue:0.0}={whiteScore:0.0} -> {winner}";
+        return $"黑：棋子{blackStones} + 领地{blackTerr} = {blackScore:0.0}，\n白：棋子{whiteStones} + 领地{whiteTerr} + 贴目{komiValue:0.0} = {whiteScore:0.0} \n结果 -> {winner}";
     }
 
+    #endregion
 
-    // =========================
-    // 日志输出（复述2D功能的关键）
-    // =========================
+    #region 相机控制
 
-    private void LogMove(int idx, int color, List<int> captured, Dictionary<int, GroupInfo> groups, int[] headOf)
+    /// <summary>
+    /// 初始化相机轨道控制
+    /// </summary>
+    private void InitCameraOrbit()
     {
-        int myHead = headOf[idx];
-        int myLib = (myHead >= 0 && groups.ContainsKey(myHead)) ? groups[myHead].liberties.Count : -1;
-
-        if (captured.Count > 0)
+        cam = Camera.main;
+        if (cam == null)
         {
-            Log($"[落子] 第 {moveNumber} 手：{ColorName(color)} @ 点{idx}，提子 {captured.Count} 枚：{FormatList(captured)}，自身气={myLib}");
-        }
-        else
-        {
-            Log($"[落子] 第 {moveNumber} 手：{ColorName(color)} @ 点{idx}，未提子，自身气={myLib}");
+            Debug.LogError("Main Camera not found. 请给相机设置 Tag=MainCamera");
+            return;
         }
 
-        if (logGroupsOnMove)
-        {
-            // 输出双方所有棋串气（调试用）
-            LogGroups(groups);
-        }
+        if (cameraTarget == null) cameraTarget = transform;
+
+        Vector3 offset = cam.transform.position - cameraTarget.position;
+        distance = Mathf.Clamp(offset.magnitude, minDistance, maxDistance);
+
+        // 从当前相机位置反推 yaw / pitch
+        Vector3 dir = offset.normalized;
+        pitch = Mathf.Asin(dir.y) * Mathf.Rad2Deg;
+        yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+
+        // 不再限制 pitch，保持自由旋转
+        yaw = Mathf.Repeat(yaw, 360f);
+        pitch = Mathf.Repeat(pitch, 360f);
+
+        UpdateCameraTransform();
     }
 
-    private void LogGroups(Dictionary<int, GroupInfo> groups)
+    /// <summary>
+    /// 处理相机输入（右键旋转、滚轮缩放）
+    /// </summary>
+    private void HandleCameraInput()
     {
-        int b = 0, w = 0;
-        foreach (var kv in groups)
+        if (cam == null) return;
+        if (cameraTarget == null) cameraTarget = transform;
+
+        // 右键按住旋转
+        if (Input.GetMouseButton(1))
         {
-            if (kv.Value.color == 1) b++;
-            else if (kv.Value.color == 2) w++;
+            float mx = Input.GetAxis("Mouse X");
+            float my = Input.GetAxis("Mouse Y");
+
+            yaw += mx * rotateSpeed * Time.deltaTime;
+            pitch -= my * rotateSpeed * Time.deltaTime;
+
+            // 允许无限上下/左右，为了避免 pitch 无限增大导致数值过大，做一个 0~360 的循环即可
+            yaw = Mathf.Repeat(yaw, 360f);
+            pitch = Mathf.Repeat(pitch, 360f);
         }
 
-        Log($"[Groups] 黑串={b} 白串={w}");
-        foreach (var kv in groups)
+        // 滚轮缩放
+        float scroll = Input.GetAxis("Mouse ScrollWheel");
+        if (Mathf.Abs(scroll) > 0.0001f)
         {
-            var g = kv.Value;
-            Log($"  - {ColorName(g.color)} head={kv.Key} stones={g.stones.Count} libs={g.liberties.Count}");
+            distance -= scroll * zoomSpeed;
+            distance = Mathf.Clamp(distance, minDistance, maxDistance);
         }
+
+        UpdateCameraTransform();
     }
 
-    private void Log(string msg)
+    /// <summary>
+    /// 更新相机变换（位置和朝向）
+    /// </summary>
+    private void UpdateCameraTransform()
     {
-        if (!enableLog) return;
-        Debug.Log(msg);
+        Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
+        Vector3 pos = cameraTarget.position + rot * new Vector3(0f, 0f, -distance);
+
+        cam.transform.position = pos;
+        cam.transform.LookAt(cameraTarget.position);
     }
 
-    private string CurrentColorName() => blackTurn ? "黑方" : "白方";
-    private string ColorName(int c) => c == 1 ? "黑" : (c == 2 ? "白" : "空");
-
-    private string FormatList(List<int> lst)
-    {
-        if (lst == null || lst.Count == 0) return "[]";
-        // 列表太长就截断，避免刷屏
-        int cap = Mathf.Min(lst.Count, 30);
-        StringBuilder sb = new StringBuilder();
-        sb.Append('[');
-        for (int i = 0; i < cap; i++)
-        {
-            if (i > 0) sb.Append(',');
-            sb.Append(lst[i]);
-        }
-        if (lst.Count > cap) sb.Append("...");
-        sb.Append(']');
-        return sb.ToString();
-    }
-
-    // =========================
-    // UI 桥接
-    // =========================
-    public void UI_HuiQi()
-    {
-        if (IsOnline)
-        {
-            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
-            {
-                GameManger.instance.SendHuiQi();
-            }
-        }
-        else
-        {
-            Undo();
-            Undo();
-        }
-    }
-
-    public void UI_PassTurn()
-    {
-        if (IsOnline)
-        {
-            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
-            {
-                Pass();
-                GameManger.instance.SendPassTurn();
-            }
-        }
-        else
-        {
-            Pass();
-        }
-    }
-
-    public void UI_Resign()
-    {
-        if (IsOnline)
-        {
-            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
-            {
-                GameManger.instance.SendResign();
-            }
-        }
-        else
-        {
-            string win = blackTurn ? "白棋获胜" : "黑棋获胜";
-            GameManger.instance.ShowPopupType2(win);
-            gameOver = true;
-        }
-    }
-
-    public void UI_ReStartGame()
-    {
-        if (IsOnline)
-        {
-            GameManger.instance.SendRestartGame();
-        }
-        else
-        {
-            SceneManger.instance.SwitchScene("3dGame");
-        }
-    }
-    public void UI_Exit()
-    {
-        if (IsOnline)
-        {
-            GameManger.instance.SendExitRoom();
-            SceneManger.instance.SwitchScene("Room");
-        }
-        else
-        {
-            SceneManger.instance.SwitchScene("Logic");
-        }
-    }
-
+    /// <summary>
+    /// 180度旋转动画（UI按钮调用）
+    /// </summary>
     public void UI_RotateSphere180()
     {
         if (!rotating)
             StartCoroutine(RotateSphere180Coroutine());
     }
 
+    /// <summary>
+    /// 180度旋转协程
+    /// </summary>
     private System.Collections.IEnumerator RotateSphere180Coroutine()
     {
         rotating = true;
@@ -1071,10 +1036,194 @@ public class PlayerFor3D : MonoBehaviour
         rotating = false;
     }
 
+    #endregion
+
+    #region 日志输出
+
+    /// <summary>
+    /// 记录落子日志
+    /// </summary>
+    private void LogMove(int idx, int color, List<int> captured, Dictionary<int, GroupInfo> groups, int[] headOf)
+    {
+        int myHead = headOf[idx];
+        int myLib = (myHead >= 0 && groups.ContainsKey(myHead)) ? groups[myHead].liberties.Count : -1;
+
+        if (captured.Count > 0)
+        {
+            Log($"[落子] 第 {moveNumber} 手：{ColorName(color)} @ 点{idx}，提子 {captured.Count} 枚：{FormatList(captured)}，自身气={myLib}");
+        }
+        else
+        {
+            Log($"[落子] 第 {moveNumber} 手：{ColorName(color)} @ 点{idx}，未提子，自身气={myLib}");
+        }
+
+        if (logGroupsOnMove)
+        {
+            // 输出双方所有棋串气（调试用）
+            LogGroups(groups);
+        }
+    }
+
+    /// <summary>
+    /// 记录所有棋串信息（调试用）
+    /// </summary>
+    private void LogGroups(Dictionary<int, GroupInfo> groups)
+    {
+        int b = 0, w = 0;
+        foreach (var kv in groups)
+        {
+            if (kv.Value.color == 1) b++;
+            else if (kv.Value.color == 2) w++;
+        }
+
+        Log($"[Groups] 黑串={b} 白串={w}");
+        foreach (var kv in groups)
+        {
+            var g = kv.Value;
+            Log($"  - {ColorName(g.color)} head={kv.Key} stones={g.stones.Count} libs={g.liberties.Count}");
+        }
+    }
+
+    /// <summary>
+    /// 输出日志（可开关）
+    /// </summary>
+    private void Log(string msg)
+    {
+        if (!enableLog) return;
+        Debug.Log(msg);
+    }
+
+    /// <summary>
+    /// 获取当前回合方名称
+    /// </summary>
+    private string CurrentColorName() => blackTurn ? "黑方" : "白方";
+
+    /// <summary>
+    /// 获取颜色名称
+    /// </summary>
+    private string ColorName(int c) => c == 1 ? "黑" : (c == 2 ? "白" : "空");
+
+    /// <summary>
+    /// 格式化列表输出（避免刷屏）
+    /// </summary>
+    private string FormatList(List<int> lst)
+    {
+        if (lst == null || lst.Count == 0) return "[]";
+        // 列表太长就截断，避免刷屏
+        int cap = Mathf.Min(lst.Count, 30);
+        StringBuilder sb = new StringBuilder();
+        sb.Append('[');
+        for (int i = 0; i < cap; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append(lst[i]);
+        }
+        if (lst.Count > cap) sb.Append("...");
+        sb.Append(']');
+        return sb.ToString();
+    }
+
+    #endregion
+
+    #region UI桥接方法
+
+    /// <summary>
+    /// UI按钮：悔棋
+    /// </summary>
+    public void UI_HuiQi()
+    {
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
+            {
+                GameManger.instance.SendHuiQi();
+            }
+        }
+        else
+        {
+            Undo();
+            Undo();
+        }
+    }
+
+    /// <summary>
+    /// UI按钮：停一手
+    /// </summary>
+    public void UI_PassTurn()
+    {
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
+            {
+                Pass();
+                GameManger.instance.SendPassTurn();
+            }
+        }
+        else
+        {
+            Pass();
+        }
+    }
+
+    /// <summary>
+    /// UI按钮：认输
+    /// </summary>
+    public void UI_Resign()
+    {
+        if (IsOnline)
+        {
+            if ((PlayerType == 1 && blackTurn) || (PlayerType == 2 && !blackTurn))
+            {
+                GameManger.instance.SendResign();
+            }
+        }
+        else
+        {
+            string win = blackTurn ? "白棋获胜" : "黑棋获胜";
+            GameManger.instance.ShowPopupType2(win);
+            gameOver = true;
+        }
+    }
+
+    /// <summary>
+    /// UI按钮：重新开始游戏
+    /// </summary>
+    public void UI_ReStartGame()
+    {
+        if (IsOnline)
+        {
+            GameManger.instance.SendRestartGame();
+        }
+        else
+        {
+            SceneManger.instance.SwitchScene("3dGame");
+        }
+    }
+
+    /// <summary>
+    /// UI按钮：退出游戏
+    /// </summary>
+    public void UI_Exit()
+    {
+        if (IsOnline)
+        {
+            GameManger.instance.SendExitRoom();
+            SceneManger.instance.SwitchScene("Room");
+        }
+        else
+        {
+            SceneManger.instance.SwitchScene("Logic");
+        }
+    }
+
+    /// <summary>
+    /// 重置按钮交互状态（工具方法）
+    /// </summary>
     public void ResetButtonInteractableFor(Button btn)
     {
         if (btn == null) return;
         StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
     }
 
+    #endregion
 }

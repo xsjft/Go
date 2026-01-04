@@ -47,3 +47,7 @@ UserSettings/
 
 # Mistaken files
 git
+
+# Unity local user settings
+UserSettings/
+
