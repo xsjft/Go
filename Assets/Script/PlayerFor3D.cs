@@ -502,8 +502,8 @@ public class PlayerFor3D : MonoBehaviour
         // 合法：落子生效
         moveNumber++;
         RebuildVisualFromState(stoneType);
-        //如果是联网模式，向对方发送落子位置
-        if (IsOnline)
+        //如果是联网模式且是自己回合，向对方发送落子位置
+        if (IsOnline && ((blackTurn && PlayerType == 1)|| (!blackTurn && PlayerType ==2)))
         {
             GameManger.instance.SendLuoziInfo3D(idx);
         }
@@ -1077,4 +1077,12 @@ public class PlayerFor3D : MonoBehaviour
         StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
     }
 
+    private void OnDisable()
+    {
+        GameManger.instance.OnLuoziRecived3D -= TryPlaceStone;
+        GameManger.instance.OnHuiQiSuccess -= Undo;  //悔棋成功调用两次
+        GameManger.instance.OnHuiQiSuccess -= Undo;
+        GameManger.instance.OnPassTurnRecived -= Pass;
+        GameManger.instance.OnResignRecived -= Resign;
+    }
 }
