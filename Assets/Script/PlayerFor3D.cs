@@ -20,11 +20,13 @@ public class PlayerFor3D : MonoBehaviour
     [SerializeField] private Button PassTurnButton;
     [SerializeField] private Button ResignButton;
     [SerializeField] private Button ExitButton;
+    [SerializeField] private Button FocusLastMoveButton;
 
     [Header("棋子预制体")]
     [SerializeField] private GameObject BlackStone;
     [SerializeField] private GameObject WhiteStone;
     [SerializeField] private Vector3 StoneSize = Vector3.one;
+    [SerializeField] private GameObject LastMoveMarkerPrefab;
 
     [Header("预下棋（临时显示）")]
     [SerializeField] private GameObject TempBlackStone;   // black_tem prefab
@@ -95,6 +97,7 @@ public class PlayerFor3D : MonoBehaviour
         public int moveNumber;                      // 手数
         public int consecutivePasses;               // 连续停一手次数
         public bool gameOver;                       // 游戏是否结束
+        public int lastMoveIndex;                   // 记录该状态下的最后落子点
     }
 
     /// <summary>
@@ -144,6 +147,10 @@ public class PlayerFor3D : MonoBehaviour
     private float distance;                         // 相机距离
     private bool rotating = false;                  // 是否正在执行180度旋转动画
 
+    // 标记点实例
+    private GameObject currentMarkerObj;
+    private int lastMoveIndex = -1;                 // 最后一步落子的索引 (-1表示无)
+
     #endregion
 
     #region Unity生命周期
@@ -159,6 +166,12 @@ public class PlayerFor3D : MonoBehaviour
         else
         {
             Log($"CSV FULL PATH = {csvFullPath}");
+        }
+
+        // 注册聚焦按钮事件
+        if (FocusLastMoveButton != null)
+        {
+            FocusLastMoveButton.onClick.AddListener(OnFocusLastMoveClicked);
         }
 
         // 初始化联网状态和执子类型
@@ -195,6 +208,16 @@ public class PlayerFor3D : MonoBehaviour
 
         // 初始化相机
         InitCameraOrbit();
+
+        // 初始空局面入栈时，记录 lastMoveIndex 为 -1
+        PushUndoState(GetBoardState());
+
+        // 实例化标记点（开始时隐藏）
+        if (LastMoveMarkerPrefab != null)
+        {
+            currentMarkerObj = Instantiate(LastMoveMarkerPrefab, transform);
+            currentMarkerObj.SetActive(false);
+        }
     }
 
     private void Update()
@@ -482,6 +505,10 @@ public class PlayerFor3D : MonoBehaviour
         moveNumber++;
         RebuildVisualFromState(stoneType);
 
+        // 更新最后一步的索引并刷新显示
+        lastMoveIndex = idx;
+        UpdateLastMoveMarker();
+
         // 如果是联网模式，向对方发送落子位置
         if (IsOnline)
         {
@@ -704,6 +731,101 @@ public class PlayerFor3D : MonoBehaviour
 
     #endregion
 
+    #region 标记与聚焦
+
+    /// <summary>
+    /// 更新最后一步棋的标记位置
+    /// </summary>
+    private void UpdateLastMoveMarker()
+    {
+        if (currentMarkerObj == null) return;
+
+        // 如果索引无效，或者该位置实际上没有棋子，则隐藏
+        if (lastMoveIndex < 0 || lastMoveIndex >= points.Count || stoneType[lastMoveIndex] == 0)
+        {
+            currentMarkerObj.SetActive(false);
+            return;
+        }
+
+        // 1. 获取目标点的【本地坐标】 (不再使用世界坐标，避免旋转带来的误差)
+        Vector3 targetLocalPos = points[lastMoveIndex].localPos;
+
+        // 2. 计算本地法线方向 (假设球心在本地原点(0,0,0)，这是最准确的方向)
+        Vector3 localNormal = targetLocalPos.normalized;
+
+        // 3. 调整偏移量 
+        float surfaceOffset = 0.03f; 
+
+        // 设置标记的【本地位置】
+        currentMarkerObj.transform.localPosition = targetLocalPos + localNormal * surfaceOffset;
+
+        // 4. 设置旋转
+        // 将本地法线转换为世界法线，确保标记正面朝外
+        Vector3 worldNormal = transform.TransformDirection(localNormal);
+        currentMarkerObj.transform.rotation = Quaternion.LookRotation(worldNormal);
+        
+        // 激活显示
+        currentMarkerObj.SetActive(true);
+    }
+
+    public void OnFocusLastMoveClicked()
+    {
+        if (lastMoveIndex < 0 || points == null) return;
+        
+        // 启动平滑旋转协程
+        StartCoroutine(AnimateCameraFocus(lastMoveIndex));
+    }
+
+    /// <summary>
+    /// 平滑移动相机视角到指定棋子正上方
+    /// </summary>
+    private System.Collections.IEnumerator AnimateCameraFocus(int targetIndex)
+    {
+        if (targetIndex < 0 || targetIndex >= points.Count) yield break;
+
+        // 1. 计算目标方向（从球心指向棋子）
+        Vector3 targetPosLocal = points[targetIndex].localPos;
+        Vector3 dir = targetPosLocal.normalized; // 假设棋盘中心是(0,0,0)
+
+        // 2. 根据方向反推目标的 Pitch 和 Yaw
+        // Unity坐标系中：
+        // Pitch (X轴旋转) = Asin(y)
+        // Yaw (Y轴旋转) = Atan2(x, z)
+        float targetPitch = Mathf.Asin(dir.y) * Mathf.Rad2Deg;
+        float targetYaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg + 180f;
+
+        // 3. 处理角度循环 (0-360)，确保从最近路径旋转
+        float startYaw = yaw;
+        float startPitch = pitch;
+
+        // 简单的插值处理
+        float duration = 0.8f; // 动画时长
+        float timer = 0f;
+
+        while (timer < duration)
+        {
+            timer += Time.deltaTime;
+            float t = timer / duration;
+            // 使用平滑插值
+            t = t * t * (3f - 2f * t);
+
+            // 使用 Mathf.LerpAngle 自动处理 359->1 的跨度问题
+            yaw = Mathf.LerpAngle(startYaw, targetYaw, t);
+            pitch = Mathf.LerpAngle(startPitch, targetPitch, t);
+            
+            // 实时更新相机
+            UpdateCameraTransform();
+            yield return null;
+        }
+
+        // 确保最终精确对齐
+        yaw = targetYaw;
+        pitch = targetPitch;
+        UpdateCameraTransform();
+    }
+
+    #endregion
+
     #region 局面序列化
 
     /// <summary>
@@ -751,7 +873,8 @@ public class PlayerFor3D : MonoBehaviour
             boardHistory = rollbackHistoryOnUndo ? new HashSet<string>(boardHistory) : null,
             moveNumber = moveNumber,
             consecutivePasses = consecutivePasses,
-            gameOver = gameOver
+            gameOver = gameOver,
+            lastMoveIndex = this.lastMoveIndex
         };
         undoStack.Push(snap);
     }
@@ -778,6 +901,9 @@ public class PlayerFor3D : MonoBehaviour
         gameOver = prev.gameOver;
         consecutivePasses = prev.consecutivePasses;
 
+        // [新增] 恢复最后一步索引
+        lastMoveIndex = prev.lastMoveIndex;
+
         if (rollbackHistoryOnUndo && prev.boardHistory != null)
         {
             boardHistory = new HashSet<string>(prev.boardHistory);
@@ -785,6 +911,9 @@ public class PlayerFor3D : MonoBehaviour
 
         RebuildVisualFromState(stoneType);
         ClearTempStone();
+
+        // 刷新标记显示
+        UpdateLastMoveMarker();
 
         Log($"[悔棋] 回到第 {moveNumber} 手。轮到：{(blackTurn ? "黑" : "白")}");
     }
@@ -842,6 +971,8 @@ public class PlayerFor3D : MonoBehaviour
 
         GameManger.instance.ShowPopupType2("双方各停一手，\n游戏结束。\n\n" + result);
     }
+
+    
 
     #endregion
 
@@ -1225,5 +1356,19 @@ public class PlayerFor3D : MonoBehaviour
         StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
     }
 
-    #endregion
+private void OnDisable()
+    {
+        // 移除所有事件监听，防止内存泄漏和报错
+        if (GameManger.instance != null)
+        {
+            GameManger.instance.OnLuoziRecived3D -= TryPlaceStone;
+            GameManger.instance.OnHuiQiSuccess -= Undo;
+            GameManger.instance.OnHuiQiSuccess -= Undo; // 注意：这里注册了两次，所以也要注销两次
+            GameManger.instance.OnPassTurnRecived -= Pass;
+            GameManger.instance.OnResignRecived -= Resign;
+        }
+    }
+
+
+     #endregion
 }

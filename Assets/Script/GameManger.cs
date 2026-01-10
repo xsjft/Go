@@ -27,9 +27,7 @@ public class GameManger : MonoBehaviour
 
 
     [SerializeField] private GameObject InvitePopupPre;    //邀请弹窗 ,弹窗type1：2按钮，1文本（按钮功能不一定一样）
-    private GameObject currentinvitePopup;
     [SerializeField] private GameObject RejectPopupPre;  //拒绝弹窗 ,弹窗type2：1按钮，1文本（按钮功能只负责销毁，弹窗类似于通知）
-    private GameObject currentRejectPopup;
 
     // 玩家状态缓存
     private Dictionary<int, int> PlayersIdToStatus = new Dictionary<int, int>();
@@ -125,7 +123,6 @@ public class GameManger : MonoBehaviour
     {
         if (InGame) return;
 
-        InGame = true;
         IsOnline = false;
         PlayerType = 0;
 
@@ -431,8 +428,6 @@ public class GameManger : MonoBehaviour
         if (msg.StartsWith("GAME_RESULT:"))
         {
             int winnerId = int.Parse(msg.Substring("GAME_RESULT:".Length));
-
-            ShowPopupType2(winnerId,"获胜");
 
             InGame = false;
 
@@ -748,16 +743,15 @@ public class GameManger : MonoBehaviour
     //id，显示文本，弹窗的功能（弹窗中按钮需要绑定不同函数）
     public void ShowPopupType1(int Id, string info, int type)
     {
-        if (currentinvitePopup != null) return; // 避免重复弹窗
 
         // 1. 实例化预制体
-        currentinvitePopup = Instantiate(InvitePopupPre, transform); // 可以指定父物体为 Canvas
+        GameObject invitePopup = Instantiate(InvitePopupPre, transform); // 可以指定父物体为 Canvas
 
         // 2. 获取按钮（使用 GetComponentInChildren）
-        Button[] buttons = currentinvitePopup.GetComponentsInChildren<Button>();
+        Button[] buttons = invitePopup.GetComponentsInChildren<Button>();
         Button acceptBtn = null;
         Button rejectBtn = null;
-        TMP_Text[] texts = currentinvitePopup.GetComponentsInChildren<TMP_Text>();
+        TMP_Text[] texts = invitePopup.GetComponentsInChildren<TMP_Text>();
 
         foreach (Button btn in buttons)
         {
@@ -773,28 +767,28 @@ public class GameManger : MonoBehaviour
         {
             acceptBtn.onClick.AddListener(() => AcceptInvite(Id));
             rejectBtn.onClick.AddListener(() => RejectInvite(Id));
-            acceptBtn.onClick.AddListener(() => DestroyPopup());
-            rejectBtn.onClick.AddListener(() => DestroyPopup());
+            acceptBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
+            rejectBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
         }
         else if (type == 2)   //申请换位
         {
             acceptBtn.onClick.AddListener(() => AcceptExchange(Id));
-            acceptBtn.onClick.AddListener(() => DestroyPopup());
-            rejectBtn.onClick.AddListener(() => DestroyPopup());
+            acceptBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
+            rejectBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
         }
         else if (type == 3) //申请悔棋
         {
             acceptBtn.onClick.AddListener(() => AcceptHuiQi(Id));
             rejectBtn.onClick.AddListener(() => RejectHuiQi(Id));
-            acceptBtn.onClick.AddListener(() => DestroyPopup());
-            rejectBtn.onClick.AddListener(() => DestroyPopup());
+            acceptBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
+            rejectBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
         }
         else if(type == 4)
         {
             acceptBtn.onClick.AddListener(() => AcceptRestartGame());
             rejectBtn.onClick.AddListener(() => RejectRestartGame());
-            acceptBtn.onClick.AddListener(() => DestroyPopup());
-            rejectBtn.onClick.AddListener(() => DestroyPopup());
+            acceptBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
+            rejectBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
         }
     }
 
@@ -802,42 +796,29 @@ public class GameManger : MonoBehaviour
     //id，显示文本（虽然有一个按钮，但是绑定同一个销毁函数，弹窗功能类似于通知）
     public void ShowPopupType2(int Id, string info)
     {
-        if (currentRejectPopup != null) return;
+        GameObject RejectPopup = Instantiate(RejectPopupPre, transform);
 
-        currentinvitePopup = Instantiate(RejectPopupPre, transform);
+        Button[] buttons = RejectPopup.GetComponentsInChildren<Button>();
+        TMP_Text[] texts = RejectPopup.GetComponentsInChildren<TMP_Text>();
 
-        Button[] buttons = currentinvitePopup.GetComponentsInChildren<Button>();
-        TMP_Text[] texts = currentinvitePopup.GetComponentsInChildren<TMP_Text>();
-
-        buttons[0].onClick.AddListener(() => DestroyPopup());
+        buttons[0].onClick.AddListener(() => DestroyPopup(RejectPopup));
         texts[1].text = Id + info.ToString();
     }
 
     public void ShowPopupType2(string info)
     {
-        if (currentRejectPopup != null) return;
+        GameObject RejectPopup = Instantiate(RejectPopupPre, transform);
 
-        currentinvitePopup = Instantiate(RejectPopupPre, transform);
+        Button[] buttons = RejectPopup.GetComponentsInChildren<Button>();
+        TMP_Text[] texts = RejectPopup.GetComponentsInChildren<TMP_Text>();
 
-        Button[] buttons = currentinvitePopup.GetComponentsInChildren<Button>();
-        TMP_Text[] texts = currentinvitePopup.GetComponentsInChildren<TMP_Text>();
-
-        buttons[0].onClick.AddListener(() => DestroyPopup());
+        buttons[0].onClick.AddListener(() => DestroyPopup(RejectPopup));
         texts[1].text =info.ToString();
     }
 
-    public void DestroyPopup()
+    public void DestroyPopup(GameObject Popup)
     {
-        if (currentinvitePopup != null)
-        {
-            Destroy(currentinvitePopup);
-            currentinvitePopup = null;
-        }
-        if (currentRejectPopup != null)
-        {
-            Destroy(currentRejectPopup);
-            currentRejectPopup = null;
-        }
+        Destroy (Popup);
     }
     #endregion
 
@@ -850,7 +831,7 @@ public class GameManger : MonoBehaviour
     public IEnumerator ResetButtonInteractable(Button btn)
     {
         btn.interactable = false;
-        yield return new WaitForSeconds(5f);
+        yield return new WaitForSeconds(3f);
         if (btn != null)
             btn.interactable = true;
     }

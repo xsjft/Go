@@ -62,9 +62,10 @@
     <Analyzer Include="C:\Users\ASUS\.vscode\extensions\visualstudiotoolsforunity.vstuc-1.2.0\Analyzers\Microsoft.Unity.Analyzers.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Script\UI\UIButtonHandleForLogic.cs" />
     <Compile Include="Assets\Script\SceneManger.cs" />
     <Compile Include="Assets\Script\PlayerFor3D.cs" />
-    <Compile Include="Assets\Script\UIButtonHandleRoom.cs" />
+    <Compile Include="Assets\Script\UI\UIButtonHandleRoom.cs" />
     <Compile Include="Assets\Script\PlayerFor2D.cs" />
     <Compile Include="Assets\Script\GameManger.cs" />
   </ItemGroup>
