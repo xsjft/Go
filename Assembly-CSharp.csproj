@@ -60,7 +60,7 @@
   <ItemGroup>
     <Compile Include="Assets\Script\UI\UIButtonHandleForLogic.cs" />
     <Compile Include="Assets\Script\SceneManger.cs" />
-    <Compile Include="Assets\Script\WindowSizeControl.cs" />
+    <Compile Include="Assets\Script\WindowSizeSync.cs" />
     <Compile Include="Assets\Script\PlayerFor3D.cs" />
     <Compile Include="Assets\Script\UI\UIButtonHandleRoom.cs" />
     <Compile Include="Assets\Script\PlayerFor2D.cs" />

@@ -8,9 +8,9 @@ onBoardingDoNotAskAgain = true
 showPackageIndexes = false
 showStatusBar = false
 scopes = {
-	"last_search.DA949528" = "run"
+	"last_search.DA949528" = "render"
 	"OpenInspectorPreview.DA949528" = "0"
-	"currentGroup.DA949528" = "settings"
+	"currentGroup.DA949528" = "all"
 }
 providers = {
 	adb = {

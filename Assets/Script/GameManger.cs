@@ -736,6 +736,17 @@ public class GameManger : MonoBehaviour
     }
     #endregion
 
+    #region  断开连接
+    public void Finally()
+    {
+        if (stream != null)
+            stream.Close();
+
+        if (client != null)
+            client.Close();
+    }
+    #endregion
+
     #endregion
 
     #region  弹窗相关
@@ -834,5 +845,10 @@ public class GameManger : MonoBehaviour
         yield return new WaitForSeconds(3f);
         if (btn != null)
             btn.interactable = true;
+    }
+
+    public void Destroy()
+    {
+        Destroy(this.gameObject);
     }
 }

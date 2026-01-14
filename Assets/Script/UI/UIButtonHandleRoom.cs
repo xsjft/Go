@@ -269,13 +269,21 @@ public class UIButtonHandleRoom : MonoBehaviour
     }
     #endregion
 
-    #region 退出房间
+    //退出房间
     public void ExitRoom()
     {
         GameManger.instance.SendExitRoom();
         SceneManger.instance.SwitchScene("Room");
     }
-    #endregion
+
+    //退出到主界面
+    public void ExitToLogic()
+    {
+        GameManger.instance.SendExitRoom();
+        GameManger.instance.Finally();
+        GameManger.instance.Destroy();
+        SceneManger.instance.SwitchScene("Logic");
+    }
 
     private void JoinRoom(int Id)    //加入房间后具体ui操作代码
     {

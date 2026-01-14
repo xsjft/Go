@@ -1208,7 +1208,6 @@ GameObject:
   m_Component:
   - component: {fileID: 1149984824}
   - component: {fileID: 1149984825}
-  - component: {fileID: 1149984826}
   m_Layer: 0
   m_Name: GameManger
   m_TagString: Untagged
@@ -1253,18 +1252,6 @@ MonoBehaviour:
   OpponentReadyStatus: 0
   InvitePopupPre: {fileID: 8972942000801409680, guid: d5dc2dae9efbc5a4796d976b9c88ab8d, type: 3}
   RejectPopupPre: {fileID: 2516519602423359632, guid: bef355cc8fa828d4fa776824f32ebdd5, type: 3}
---- !u!114 &1149984826
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1149984823}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 02a9df99076bf4c44905cb42d7ba7e9c, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1 &1249778040
 GameObject:
   m_ObjectHideFlags: 0
