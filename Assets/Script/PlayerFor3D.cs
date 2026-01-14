@@ -1106,11 +1106,21 @@ public class PlayerFor3D : MonoBehaviour
         {
             float mx = Input.GetAxis("Mouse X");
             float my = Input.GetAxis("Mouse Y");
+            
+            // 判断当前是否处于“倒立”状态
+            // 因为使用了 Mathf.Repeat(pitch, 360f)，所以倒立的区间是 90 到 270 度
+            bool isUpsideDown = pitch > 90f && pitch < 270f;
+
+            // 如果倒立，反转水平输入的各方向
+            if (isUpsideDown)
+            {
+                mx = -mx;
+            }
 
             yaw += mx * rotateSpeed * Time.deltaTime;
             pitch -= my * rotateSpeed * Time.deltaTime;
 
-            // 允许无限上下/左右，为了避免 pitch 无限增大导致数值过大，做一个 0~360 的循环即可
+            // 保持 0-360 循环
             yaw = Mathf.Repeat(yaw, 360f);
             pitch = Mathf.Repeat(pitch, 360f);
         }
@@ -1131,11 +1141,20 @@ public class PlayerFor3D : MonoBehaviour
     /// </summary>
     private void UpdateCameraTransform()
     {
+        // 1. 直接用欧拉角生成旋转
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
+
+        // 2. 强制设置相机旋转
+        cam.transform.rotation = rot;
+
+        // 3. 根据旋转后的方向，向后延伸 distance 距离，确定相机位置
+        // 原理：目标点位置 + (旋转方向 * 向后的向量 * 距离)
         Vector3 pos = cameraTarget.position + rot * new Vector3(0f, 0f, -distance);
 
         cam.transform.position = pos;
-        cam.transform.LookAt(cameraTarget.position);
+
+        // 【删除】原来的 LookAt，因为它会导致越过极点时的翻转跳变
+        // cam.transform.LookAt(cameraTarget.position); 
     }
 
     /// <summary>
@@ -1148,28 +1167,49 @@ public class PlayerFor3D : MonoBehaviour
     }
 
     /// <summary>
-    /// 180度旋转协程
+    /// 摄像机飞向对面视角的协程
     /// </summary>
     private System.Collections.IEnumerator RotateSphere180Coroutine()
     {
         rotating = true;
 
-        Quaternion start = transform.rotation;
+        float timer = 0f;
+        
+        // 1. 记录起点
+        float startYaw = yaw;
+        float startPitch = pitch;
 
-        // 绕任意轴旋转 180°，到达对面
-        Vector3 axis = (Vector3.up + Vector3.right).normalized;
-        Quaternion target = Quaternion.AngleAxis(180f, axis) * start;
+        // 2. 计算终点（球心对称点）
+        // 目标 Yaw = 当前 Yaw + 180度
+        float targetYaw = startYaw + 180f;
+        // 目标 Pitch = 当前 Pitch 取反 (例如：从俯视45度 变成 仰视45度)
+        float targetPitch = -startPitch; 
 
-        float t = 0f;
-        while (t < rotate180Duration)
+        // 3. 动画插值
+        while (timer < rotate180Duration)
         {
-            t += Time.deltaTime;
-            float k = Mathf.Clamp01(t / rotate180Duration);
-            transform.rotation = Quaternion.Slerp(start, target, k);
+            timer += Time.deltaTime;
+            // 计算进度 (0到1)
+            float t = timer / rotate180Duration;
+            
+            // 使用平滑插值公式 (SmoothStep)，让起止动作更柔和
+            // t = t * t * (3f - 2f * t); 
+
+            // 线性插值角度
+            yaw = Mathf.Lerp(startYaw, targetYaw, t);
+            pitch = Mathf.Lerp(startPitch, targetPitch, t);
+
+            // 每一帧都更新相机位置
+            UpdateCameraTransform();
+
             yield return null;
         }
 
-        transform.rotation = target;
+        // 4. 确保最终精确到达目标值
+        yaw = targetYaw;
+        pitch = targetPitch;
+        UpdateCameraTransform();
+
         rotating = false;
     }
 
