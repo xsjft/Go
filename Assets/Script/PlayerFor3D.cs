@@ -190,6 +190,7 @@ public class PlayerFor3D : MonoBehaviour
         PassTurnButton.interactable = false;
         ResignButton.interactable = false;
         ExitButton.interactable = false;
+        FocusLastMoveButton.interactable = false;
     }
 
     private void Start()
@@ -225,11 +226,12 @@ public class PlayerFor3D : MonoBehaviour
         // 更新UI按钮状态
         UpdateButtonStates();
 
-        // 游戏结束则不处理输入
-        if (gameOver) return;
 
         // 处理相机输入
         HandleCameraInput();
+
+        // 游戏结束则不处理输入
+        if (gameOver) return;
 
         // 处理键盘输入
         HandleKeyboardInput();
@@ -322,13 +324,17 @@ public class PlayerFor3D : MonoBehaviour
             PassTurnButton.interactable = false;
             ResignButton.interactable = false;
             ExitButton.interactable = true;
+            FocusLastMoveButton.interactable= false;
             return;
         }
 
         bool isMyTurn = CheckTurn();
+        RestartGameButton.interactable = false;
         HuiQiButton.interactable = isMyTurn;
         PassTurnButton.interactable = isMyTurn;
         ResignButton.interactable = isMyTurn;
+        ExitButton.interactable = false;
+        FocusLastMoveButton.interactable = true;
     }
 
     /// <summary>
@@ -515,6 +521,7 @@ public class PlayerFor3D : MonoBehaviour
             GameManger.instance.SendLuoziInfo3D(idx);
         }
 
+        blackTurn = !blackTurn;
         // 记录历史/悔棋
         boardHistory.Add(newState);
         PushUndoState(newState);
@@ -524,7 +531,6 @@ public class PlayerFor3D : MonoBehaviour
         // 输出日志
         LogMove(idx, color, captured, groupsAfterCapture, headOf);
 
-        blackTurn = !blackTurn;
     }
 
     /// <summary>

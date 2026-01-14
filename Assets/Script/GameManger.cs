@@ -22,7 +22,7 @@ public class GameManger : MonoBehaviour
 
     private TcpClient client = new TcpClient();
     private NetworkStream stream;
-    private string serverIP = "47.108.170.108";
+    private string serverIP = "8.138.99.221";
     private int serverPort = 5555;
 
 
@@ -113,7 +113,7 @@ public class GameManger : MonoBehaviour
     #region 游戏开始/离线模式
     private void StartGame()
     {
-        if (InGame) return;
+        //if (InGame) return;
         InGame = true;
 
         SceneManger.instance.SwitchScene("3dGame");
@@ -121,7 +121,7 @@ public class GameManger : MonoBehaviour
 
     public void OfflineStart()
     {
-        if (InGame) return;
+        //if (InGame) return;
 
         IsOnline = false;
         PlayerType = 0;
