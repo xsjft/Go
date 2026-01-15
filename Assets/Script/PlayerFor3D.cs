@@ -5,6 +5,7 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using static UnityEngine.GraphicsBuffer;
 
 /// <summary>
 /// 3D围棋游戏主控制器
@@ -141,7 +142,9 @@ public class PlayerFor3D : MonoBehaviour
     private bool IsOnline;                          // 是否联机模式
 
     // 相机控制
-    private Camera cam;
+    [Header("相机")]
+    [SerializeField]private Camera cam;
+    [SerializeField]private Camera backCam;
     private float yaw;                              // 水平旋转角
     private float pitch;                            // 垂直旋转角
     private float distance;                         // 相机距离
@@ -1069,7 +1072,6 @@ public class PlayerFor3D : MonoBehaviour
     /// </summary>
     private void InitCameraOrbit()
     {
-        cam = Camera.main;
         if (cam == null)
         {
             Debug.LogError("Main Camera not found. 请给相机设置 Tag=MainCamera");
@@ -1125,7 +1127,7 @@ public class PlayerFor3D : MonoBehaviour
             pitch = Mathf.Repeat(pitch, 360f);
         }
 
-        // 滚轮缩放
+        //滚轮缩放
         float scroll = Input.GetAxis("Mouse ScrollWheel");
         if (Mathf.Abs(scroll) > 0.0001f)
         {
@@ -1150,8 +1152,17 @@ public class PlayerFor3D : MonoBehaviour
         // 3. 根据旋转后的方向，向后延伸 distance 距离，确定相机位置
         // 原理：目标点位置 + (旋转方向 * 向后的向量 * 距离)
         Vector3 pos = cameraTarget.position + rot * new Vector3(0f, 0f, -distance);
-
         cam.transform.position = pos;
+
+        //背摄像机位置与主摄像关于中心点对称
+        Vector3 center = cameraTarget.position;
+        Vector3 mainPos = cam.transform.position;
+
+        // 位置关于中心点对称
+        Vector3 backPos = center * 2f - mainPos;
+
+        backCam.transform.position = backPos;
+
 
         // 【删除】原来的 LookAt，因为它会导致越过极点时的翻转跳变
         // cam.transform.LookAt(cameraTarget.position); 
