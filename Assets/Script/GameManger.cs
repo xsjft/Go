@@ -1,40 +1,70 @@
-using System;
+ï»¿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using System.Threading.Tasks;
+using System.IO;
+using UnityEngine.Networking;
 
 public class GameManger : MonoBehaviour
 {
     public static GameManger instance;
 
-    public bool InGame = false;   //ÔİÊ±Ã»ÓÃµ½
+    public bool InGame = false;   //æš‚æ—¶æ²¡ç”¨åˆ°
     public int playerId = -1;
     public int OpponentId = -1;
-    public bool IsOnline;         //ÊÇ·ñÔÚÏß
-    public int PlayerType;         //Ë«·½Ö´×ÓÀàĞÍ
+    public bool IsOnline;         //æ˜¯å¦åœ¨çº¿
+    public int PlayerType;         //åŒæ–¹æ‰§å­ç±»å‹
     public int OpponentType;
-    public bool MyReadyStatus;        //Ë«·½×¼±¸×´Ì¬
+    public bool MyReadyStatus;        //åŒæ–¹å‡†å¤‡çŠ¶æ€
     public bool OpponentReadyStatus;
 
+    #region ç½‘ç»œè¿æ¥ç›¸å…³
     private TcpClient client = new TcpClient();
     private NetworkStream stream;
-    private string serverIP = "8.138.99.221";
-    private int serverPort = 5555;
 
+    [System.Serializable]
+    public class ServerConfig
+    {
+        public string serverIP;
+        public int port;
+    }
 
-    [SerializeField] private GameObject InvitePopupPre;    //ÑûÇëµ¯´° ,µ¯´°type1£º2°´Å¥£¬1ÎÄ±¾£¨°´Å¥¹¦ÄÜ²»Ò»¶¨Ò»Ñù£©
-    [SerializeField] private GameObject RejectPopupPre;  //¾Ü¾øµ¯´° ,µ¯´°type2£º1°´Å¥£¬1ÎÄ±¾£¨°´Å¥¹¦ÄÜÖ»¸ºÔğÏú»Ù£¬µ¯´°ÀàËÆÓÚÍ¨Öª£©
+    public static class JsonHelper
+    {
+        [System.Serializable]
+        private class Wrapper<T>
+        {
+            public T[] Items;
+        }
 
-    // Íæ¼Ò×´Ì¬»º´æ
+        public static T[] FromJson<T>(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return new T[0];
+
+            string wrappedJson = "{\"Items\":" + json + "}";
+            return JsonUtility.FromJson<Wrapper<T>>(wrappedJson).Items;
+        }
+    }
+
+    private List<string> serverIPs = new List<string>();
+    private List<int> serverPorts = new List<int>();
+    #endregion
+
+    [SerializeField] private GameObject InvitePopupPre;    //é‚€è¯·å¼¹çª— ,å¼¹çª—type1ï¼š2æŒ‰é’®ï¼Œ1æ–‡æœ¬ï¼ˆæŒ‰é’®åŠŸèƒ½ä¸ä¸€å®šä¸€æ ·ï¼‰
+    [SerializeField] private GameObject RejectPopupPre;  //æ‹’ç»å¼¹çª— ,å¼¹çª—type2ï¼š1æŒ‰é’®ï¼Œ1æ–‡æœ¬ï¼ˆæŒ‰é’®åŠŸèƒ½åªè´Ÿè´£é”€æ¯ï¼Œå¼¹çª—ç±»ä¼¼äºé€šçŸ¥ï¼‰
+
+    // ç©å®¶çŠ¶æ€ç¼“å­˜
     private Dictionary<int, int> PlayersIdToStatus = new Dictionary<int, int>();
-    private string recvCache = "";//ÊÕµ½µÄÏûÏ¢»º´æ
+    private string recvCache = "";//æ”¶åˆ°çš„æ¶ˆæ¯ç¼“å­˜
 
-    // ÊÂ¼ş£º¼ÓÈë·¿¼ä³É¹¦£¬½»»»Ö´×Ó³É¹¦£¬Íæ¼ÒÁĞ±íË¢ĞÂ£¬×¼±¸×´Ì¬¸Ä±ä£¬
-    // ½ÓÊÕµ½Âä×ÓĞÅÏ¢£¬»ÚÆå³É¹¦£¬¹ıÒ»ÊÖ£¬Íæ¼ÒÈÏÊä
+    // äº‹ä»¶ï¼šåŠ å…¥æˆ¿é—´æˆåŠŸï¼Œäº¤æ¢æ‰§å­æˆåŠŸï¼Œç©å®¶åˆ—è¡¨åˆ·æ–°ï¼Œå‡†å¤‡çŠ¶æ€æ”¹å˜ï¼Œ
+    // æ¥æ”¶åˆ°è½å­ä¿¡æ¯ï¼Œæ‚”æ£‹æˆåŠŸï¼Œè¿‡ä¸€æ‰‹ï¼Œç©å®¶è®¤è¾“
     public Action<int> JoinRoomSuccess;
     public Action ExchangeSuccess;
     public Action<Dictionary<int, int>> OnPlayersStatusUpdated;
@@ -56,25 +86,54 @@ public class GameManger : MonoBehaviour
         {
             Destroy(gameObject);
         }
+
+        //é…ç½®æœåŠ¡å™¨ä¿¡æ¯
+        StartCoroutine(LoadServerConfigs());
     }
 
-    #region Á¬½Ó·şÎñÆ÷
+    #region è¿æ¥æœåŠ¡å™¨
     public void Logic()
     {
         if (InGame) return;
-        Debug.Log("ÕıÔÚÁ¬½Ó·şÎñÆ÷...");
+        Debug.Log("æ­£åœ¨è¿æ¥æœåŠ¡å™¨...");
         StartCoroutine(ConnectToServer());
     }
 
     private IEnumerator ConnectToServer()
     {
-        var result = client.BeginConnect(serverIP, serverPort, null, null);
-        yield return new WaitUntil(() => result.IsCompleted);
-
-        if (!client.Connected)
+        for (int i = 0; i < serverIPs.Count; i++)
         {
-            ShowPopupType2("Á¬½Ó³¬Ê±");
-            yield break;
+            client = new TcpClient();
+
+            Task connectTask = client.ConnectAsync(serverIPs[i], serverPorts[i]);
+
+            float timeout = 5f;
+            float timer = 0f;
+
+            while (!connectTask.IsCompleted && timer < timeout)
+            {
+                timer += Time.deltaTime;
+                yield return null;
+            }
+
+            if (!connectTask.IsCompleted || !client.Connected)
+            {
+                client.Close();
+
+                if (i == serverIPs.Count - 1)
+                {
+                    ShowPopupType2("æ‰€æœ‰æœåŠ¡å™¨è¿æ¥å¤±è´¥");
+                    yield break;
+                }
+                else
+                {
+                    ShowPopupType2("è¿æ¥è¶…æ—¶ï¼Œå°è¯•ä¸‹ä¸€ä¸ªæœåŠ¡å™¨");
+                }
+                continue;
+            }
+
+            Debug.Log($"è¿æ¥æˆåŠŸï¼š{serverIPs[i]}:{serverPorts[i]}");
+            break;
         }
 
         stream = client.GetStream();
@@ -87,30 +146,113 @@ public class GameManger : MonoBehaviour
             string idStr = response.Substring(3);
             if (int.TryParse(idStr, out playerId))
             {
-                Debug.Log($"Á¬½Ó³É¹¦£¬Íæ¼ÒID£º{playerId}");
+                Debug.Log($"è¿æ¥æˆåŠŸï¼Œç©å®¶IDï¼š{playerId}");
                 IsOnline = true;
                 SceneManger.instance.SwitchScene("Room");
 
-                // Á¬½Ó³É¹¦ºóÆô¶¯¼àÌı
+                // è¿æ¥æˆåŠŸåå¯åŠ¨ç›‘å¬
                 StartListeningServer();
             }
             else
             {
-                Debug.LogError("ID½âÎöÊ§°Ü£º" + response);
+                Debug.LogError("IDè§£æå¤±è´¥ï¼š" + response);
             }
         }
         else if (response == "SERVER_FULL")
         {
-            Debug.LogWarning("·şÎñÆ÷ÒÑÂú£¬ÎŞ·¨½øÈë");
+            Debug.LogWarning("æœåŠ¡å™¨å·²æ»¡ï¼Œæ— æ³•è¿›å…¥");
         }
         else
         {
-            Debug.LogError("Î´Öª·şÎñÆ÷ÏìÓ¦£º" + response);
+            Debug.LogError("æœªçŸ¥æœåŠ¡å™¨å“åº”ï¼š" + response);
         }
+    }
+
+    public IEnumerator LoadServerConfigs()
+    {
+        serverIPs.Clear();
+        serverPorts.Clear();
+
+        // ======================
+        // 1ï¸âƒ£ è¯»å– StreamingAssets é…ç½®
+        // ======================
+        string streamingPath = Path.Combine(Application.streamingAssetsPath, "server_config.json");
+        UnityWebRequest req = UnityWebRequest.Get(streamingPath);
+        yield return req.SendWebRequest();
+
+        if (req.result == UnityWebRequest.Result.Success)
+        {
+            try
+            {
+                string jsonText = req.downloadHandler.text.Trim();
+                ServerConfig[] configs = JsonHelper.FromJson<ServerConfig>(jsonText);
+
+                foreach (var config in configs)
+                {
+                    if (!string.IsNullOrEmpty(config.serverIP) && config.port > 0 &&
+                        !serverIPs.Contains(config.serverIP))
+                    {
+                        serverIPs.Add(config.serverIP);
+                        serverPorts.Add(config.port);
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError("è§£æ StreamingAssets é…ç½®å¤±è´¥: " + e);
+            }
+        }
+        else
+        {
+            Debug.LogWarning("è¯»å– StreamingAssets é…ç½®å¤±è´¥: " + req.error);
+        }
+
+        // ======================
+        // 2ï¸âƒ£ è¯»å–æˆ–åˆ›å»º persistentDataPath é…ç½®
+        // ======================
+        string localPath = Path.Combine(Application.persistentDataPath, "server_config.json");
+
+        if (File.Exists(localPath))
+        {
+            try
+            {
+                string jsonText = File.ReadAllText(localPath).Trim();
+                ServerConfig[] configs = JsonHelper.FromJson<ServerConfig>(jsonText);
+
+                foreach (var config in configs)
+                {
+                    if (!string.IsNullOrEmpty(config.serverIP) && config.port > 0 &&
+                        !serverIPs.Contains(config.serverIP))
+                    {
+                        serverIPs.Add(config.serverIP);
+                        serverPorts.Add(config.port);
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError("è§£ææœ¬åœ°é…ç½®å¤±è´¥: " + e);
+            }
+        }
+        else
+        {
+            // æ–‡ä»¶ä¸å­˜åœ¨ â†’ åˆ›å»ºç©ºæ•°ç»„
+            try
+            {
+                File.WriteAllText(localPath, "[]");
+                Debug.Log("æœ¬åœ°é…ç½®æ–‡ä»¶ä¸å­˜åœ¨ï¼Œå·²åˆ›å»ºç©ºæ–‡ä»¶");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError("åˆ›å»ºæœ¬åœ°é…ç½®æ–‡ä»¶å¤±è´¥: " + e);
+            }
+        }
+
+        Debug.Log($"åŠ è½½å®Œæˆï¼Œå…± {serverIPs.Count} ä¸ªæœåŠ¡å™¨");
     }
     #endregion
 
-    #region ÓÎÏ·¿ªÊ¼/ÀëÏßÄ£Ê½
+    #region æ¸¸æˆå¼€å§‹/ç¦»çº¿æ¨¡å¼
     private void StartGame()
     {
         //if (InGame) return;
@@ -130,7 +272,7 @@ public class GameManger : MonoBehaviour
     }
     #endregion
 
-    #region ¼àÌı
+    #region ç›‘å¬
     public void StartListeningServer()
     {
         if (IsOnline && client != null && client.Connected)
@@ -149,7 +291,7 @@ public class GameManger : MonoBehaviour
                 string chunk = Encoding.UTF8.GetString(buffer, 0, len);
                 recvCache += chunk;
 
-                //  °´ \n ²ğÏûÏ¢
+                //  æŒ‰ \n æ‹†æ¶ˆæ¯
                 while (recvCache.Contains("\n"))
                 {
                     int index = recvCache.IndexOf('\n');
@@ -192,12 +334,12 @@ public class GameManger : MonoBehaviour
             return;
         }
 
-        // ·¿¼ä×´Ì¬
+        // æˆ¿é—´çŠ¶æ€
         if (msg.StartsWith("RoomState:"))
         {
             string content = msg.Substring("RoomState:".Length).Trim();
 
-            // ²»ÔÚ·¿¼ä
+            // ä¸åœ¨æˆ¿é—´
             if (content.StartsWith("0"))
             {
                 return;
@@ -217,13 +359,13 @@ public class GameManger : MonoBehaviour
                 switch (key)
                 {
                     case "me":
-                        // ¿ÉÒÔºöÂÔ£¬Ä¬ÈÏ¾ÍÊÇ×Ô¼ºplayerId
+                        // å¯ä»¥å¿½ç•¥ï¼Œé»˜è®¤å°±æ˜¯è‡ªå·±playerId
                         break;
                     case "op":
                         OpponentId = int.Parse(value);
                         break;
                     case "meColor":
-                        PlayerType = (int.Parse(value) == 1) ? 1 : 2; // 1ºÚ 2°×
+                        PlayerType = (int.Parse(value) == 1) ? 1 : 2; // 1é»‘ 2ç™½
                         break;
                     case "opColor":
                         OpponentType = (int.Parse(value) == 1) ? 1 : 2;
@@ -239,36 +381,36 @@ public class GameManger : MonoBehaviour
 
             JoinRoomSuccess?.Invoke(OpponentId);
 
-            Debug.Log($"·¿¼ä×´Ì¬¸üĞÂ£ºÎÒ={MyReadyStatus}({PlayerType}), ¶ÔÊÖ={OpponentReadyStatus}({OpponentType})");
+            Debug.Log($"æˆ¿é—´çŠ¶æ€æ›´æ–°ï¼šæˆ‘={MyReadyStatus}({PlayerType}), å¯¹æ‰‹={OpponentReadyStatus}({OpponentType})");
 
             return;
         }
 
-        //ÑûÇë
+        //é‚€è¯·
         if (msg.StartsWith("INVITED:"))
         {
             if (int.TryParse(msg.Substring(8), out int inviterId))
-                ShowPopupType1(inviterId, "ÑûÇëÄã", 1);
+                ShowPopupType1(inviterId, "é‚€è¯·ä½ ", 1);
             return;
         }
         
-        //ÑûÇë±»¾Ü¾ø
+        //é‚€è¯·è¢«æ‹’ç»
         if (msg.StartsWith("INVITE_REJECTED:"))
         {
             if (int.TryParse(msg.Substring(16), out int rejectId))
-                ShowPopupType2(rejectId, "¾Ü¾øÁËÄãµÄÑûÇë");
+                ShowPopupType2(rejectId, "æ‹’ç»äº†ä½ çš„é‚€è¯·");
             return;
         }
 
-        //·¿¼äÂú
+        //æˆ¿é—´æ»¡
         if (msg.StartsWith("ROOM_FULL:"))
         {
             if (int.TryParse(msg.Substring(10), out int otherId))
-                ShowPopupType2(otherId, "µÄ·¿¼äÂúÁË");
+                ShowPopupType2(otherId, "çš„æˆ¿é—´æ»¡äº†");
             return;
         }
 
-        //½øÈë·¿¼ä
+        //è¿›å…¥æˆ¿é—´
         if (msg.StartsWith("JoinRoom:"))
         {
             string[] parts = msg.Substring(9).Split(',');
@@ -285,15 +427,15 @@ public class GameManger : MonoBehaviour
             return;
         }
 
-        //½»»»Ö´×ÓÇëÇó
+        //äº¤æ¢æ‰§å­è¯·æ±‚
         if (msg.StartsWith("EXCHANGE_REQUEST:"))
         {
             if (int.TryParse(msg.Substring(17), out int opponentId))
-                ShowPopupType1(opponentId, "ÇëÇó½»»»Ö´×ÓÀàĞÍ", 2);
+                ShowPopupType1(opponentId, "è¯·æ±‚äº¤æ¢æ‰§å­ç±»å‹", 2);
             return;
         }
 
-        //½»»»Ö´×Ó³É¹¦
+        //äº¤æ¢æ‰§å­æˆåŠŸ
         if (msg == "Exchange_Success")
         {
             PlayerType = PlayerType == 1 ? 2 : 1;
@@ -301,7 +443,7 @@ public class GameManger : MonoBehaviour
             return;
         }
 
-        //×¼±¸×´Ì¬
+        //å‡†å¤‡çŠ¶æ€
         if (msg.StartsWith("READY_STATUS:"))
         {
             // READY_STATUS:1:1,3:0
@@ -324,35 +466,35 @@ public class GameManger : MonoBehaviour
                 }
             }
 
-            Debug.Log($"×¼±¸×´Ì¬¸üĞÂ£ºÎÒ={MyReadyStatus}, ¶ÔÊÖ={OpponentReadyStatus}");
+            Debug.Log($"å‡†å¤‡çŠ¶æ€æ›´æ–°ï¼šæˆ‘={MyReadyStatus}, å¯¹æ‰‹={OpponentReadyStatus}");
 
             OnReadyStatusChanged?.Invoke();
             return;
         }
 
-        //ÓÎÏ·¿ªÊ¼
+        //æ¸¸æˆå¼€å§‹
         if (msg.StartsWith("GAME_START_RESULT:"))
         {
             string resultStr = msg.Substring("GAME_START_RESULT:".Length).Trim();
 
             if (resultStr == "1")
             {
-                Debug.Log("·şÎñ¶ËÈ·ÈÏ£º¿ÉÒÔ¿ªÊ¼ÓÎÏ·");
+                Debug.Log("æœåŠ¡ç«¯ç¡®è®¤ï¼šå¯ä»¥å¼€å§‹æ¸¸æˆ");
                 StartGame();
             }
             else
             {
-                Debug.Log("·şÎñ¶Ë¾Ü¾ø£º»¹ÓĞÍæ¼ÒÎ´×¼±¸");
-                ShowPopupType2(OpponentId, "»¹Ã»ÓĞ×¼±¸");
+                Debug.Log("æœåŠ¡ç«¯æ‹’ç»ï¼šè¿˜æœ‰ç©å®¶æœªå‡†å¤‡");
+                ShowPopupType2(OpponentId, "è¿˜æ²¡æœ‰å‡†å¤‡");
             }
 
             return;
         }
 
-        //¶Ô·½Âä×ÓĞÅÏ¢
+        //å¯¹æ–¹è½å­ä¿¡æ¯
         if (msg.StartsWith("LUOZI:"))
         {
-            // ¸ñÊ½: LUOZI:playerId,stoneType,px,py,pz,nx,ny,nz
+            // æ ¼å¼: LUOZI:playerId,stoneType,px,py,pz,nx,ny,nz
             try
             {
                 string content = msg.Substring("LUOZI:".Length);
@@ -361,7 +503,7 @@ public class GameManger : MonoBehaviour
                 if (parts.Length >= 8)
                 {
                     int playerId = int.Parse(parts[0]);
-                    int stoneType = int.Parse(parts[1]); // ¿ÉÑ¡£¬Èç¹ûĞèÒª
+                    int stoneType = int.Parse(parts[1]); // å¯é€‰ï¼Œå¦‚æœéœ€è¦
                     Vector3 point = new Vector3(
                         float.Parse(parts[2]),
                         float.Parse(parts[3]),
@@ -373,58 +515,58 @@ public class GameManger : MonoBehaviour
                         float.Parse(parts[7])
                     );
 
-                    // »Øµ÷Í¨Öª
+                    // å›è°ƒé€šçŸ¥
                     OnLuoziRecived?.Invoke(stoneType, point, normal);
                 }
             }
             catch (Exception e)
             {
-                Debug.LogError("½âÎöLUOZIÏûÏ¢Ê§°Ü: " + e);
+                Debug.LogError("è§£æLUOZIæ¶ˆæ¯å¤±è´¥: " + e);
             }
         }
 
         if (msg.StartsWith("LUOZI3D:"))
         {
-            int idx = int.Parse(msg.Substring("LUOZI3D:".Length)); // ÌáÈ¡idx
+            int idx = int.Parse(msg.Substring("LUOZI3D:".Length)); // æå–idx
 
             OnLuoziRecived3D?.Invoke(idx);  
 
-            Debug.Log($"ÊÕµ½3DÂä×ÓĞÅÏ¢£¬idx: {idx}");
+            Debug.Log($"æ”¶åˆ°3Dè½å­ä¿¡æ¯ï¼Œidx: {idx}");
         }
 
-        // ÊÕµ½»ÚÆåÇëÇó
+        // æ”¶åˆ°æ‚”æ£‹è¯·æ±‚
         if (msg.StartsWith("HUIQI_REQUEST:"))
         {
             if (int.TryParse(msg.Substring("HUIQI_REQUEST:".Length), out int opponentId))
             {
-                // µ¯´°ÌáÊ¾¶Ô·½ÇëÇó»ÚÆå£¬type=3±íÊ¾»ÚÆåÇëÇóÀàĞÍ
-                ShowPopupType1(opponentId, "ÇëÇó»ÚÆå", 3);
+                // å¼¹çª—æç¤ºå¯¹æ–¹è¯·æ±‚æ‚”æ£‹ï¼Œtype=3è¡¨ç¤ºæ‚”æ£‹è¯·æ±‚ç±»å‹
+                ShowPopupType1(opponentId, "è¯·æ±‚æ‚”æ£‹", 3);
             }
             return;
         }
 
-        // ½ÓÊÕ»ÚÆå±»¾Ü¾ø
+        // æ¥æ”¶æ‚”æ£‹è¢«æ‹’ç»
         if (msg == "HUIQI_REJECTED")
         {
-            ShowPopupType2(OpponentId, "ÄãµÄ»ÚÆåÇëÇó±»¶Ô·½¾Ü¾ø"); 
+            ShowPopupType2(OpponentId, "ä½ çš„æ‚”æ£‹è¯·æ±‚è¢«å¯¹æ–¹æ‹’ç»"); 
             return;
         }
 
-        // »ÚÆå³É¹¦
+        // æ‚”æ£‹æˆåŠŸ
         if (msg == "HUIQI_SUCCESS")
         {
             OnHuiQiSuccess?.Invoke(); 
             return;
         }
 
-        //ÊÕµ½¹ıÒ»ÊÖ
+        //æ”¶åˆ°è¿‡ä¸€æ‰‹
         if (msg.StartsWith("OpponentPassTurn:"))
         {
-            ShowPopupType2(OpponentId, "Ñ¡Ôñ¹ıÒ»ÊÖ");
+            ShowPopupType2(OpponentId, "é€‰æ‹©è¿‡ä¸€æ‰‹");
             OnPassTurnRecived?.Invoke();
         }
 
-        // ÊÕµ½ÈÏÊä
+        // æ”¶åˆ°è®¤è¾“
         if (msg.StartsWith("GAME_RESULT:"))
         {
             int winnerId = int.Parse(msg.Substring("GAME_RESULT:".Length));
@@ -435,25 +577,25 @@ public class GameManger : MonoBehaviour
             return;
         }
 
-        // ÊÕµ½ÖØĞÂ¿ªÊ¼ÓÎÏ·ÇëÇó
+        // æ”¶åˆ°é‡æ–°å¼€å§‹æ¸¸æˆè¯·æ±‚
         if (msg.StartsWith("RequestRestartGameFrom:"))
         {
             if (int.TryParse(msg.Substring("RequestRestartGameFrom:".Length), out int requesterId))
             {
-                Debug.Log($"ÊÕµ½Íæ¼Ò {requesterId} µÄÖØĞÂ¿ªÊ¼ÓÎÏ·ÇëÇó");
+                Debug.Log($"æ”¶åˆ°ç©å®¶ {requesterId} çš„é‡æ–°å¼€å§‹æ¸¸æˆè¯·æ±‚");
 
-                // µ¯´°ÌáÊ¾Íæ¼ÒÑ¡ÔñÊÇ·ñ½ÓÊÜ
-                ShowPopupType1(requesterId,"ÇëÇóÖØĞÂ¿ªÊ¼ÓÎÏ·",4);  
+                // å¼¹çª—æç¤ºç©å®¶é€‰æ‹©æ˜¯å¦æ¥å—
+                ShowPopupType1(requesterId,"è¯·æ±‚é‡æ–°å¼€å§‹æ¸¸æˆ",4);  
             }
             return;
         }
 
-        // ÊÕµ½ÖØĞÂ¿ªÊ¼ÓÎÏ·
+        // æ”¶åˆ°é‡æ–°å¼€å§‹æ¸¸æˆ
         if (msg.StartsWith("ReStartGame:"))
         {
             if (int.TryParse(msg.Substring("ReStartGame:".Length), out int senderId))
             {
-                Debug.Log($"Íæ¼Ò {senderId} Í¬ÒâÖØĞÂ¿ªÊ¼ÓÎÏ·£¬¿ªÊ¼ÖØÖÃÓÎÏ·");
+                Debug.Log($"ç©å®¶ {senderId} åŒæ„é‡æ–°å¼€å§‹æ¸¸æˆï¼Œå¼€å§‹é‡ç½®æ¸¸æˆ");
             }
 
             SceneManger.instance.SwitchScene("Room");
@@ -461,28 +603,28 @@ public class GameManger : MonoBehaviour
             return;
         }
 
-        // ÊÕµ½ÖØĞÂ¿ªÊ¼ÓÎÏ·±»¾Ü¾ø
+        // æ”¶åˆ°é‡æ–°å¼€å§‹æ¸¸æˆè¢«æ‹’ç»
         if (msg.StartsWith("ReStartGameRejected:"))
         {
             if (int.TryParse(msg.Substring("ReStartGameRejected:".Length), out int rejecterId))
             {
-                Debug.Log($"Íæ¼Ò {rejecterId} ¾Ü¾øÁËÖØĞÂ¿ªÊ¼ÓÎÏ·ÇëÇó");
+                Debug.Log($"ç©å®¶ {rejecterId} æ‹’ç»äº†é‡æ–°å¼€å§‹æ¸¸æˆè¯·æ±‚");
 
-                ShowPopupType2(rejecterId, "¾Ü¾øÁËÄãµÄÖØĞÂ¿ªÊ¼ÇëÇó");
+                ShowPopupType2(rejecterId, "æ‹’ç»äº†ä½ çš„é‡æ–°å¼€å§‹è¯·æ±‚");
             }
             return;
         }
 
-        //¶ÔÊÖÓë·şÎñÆ÷¶Ï¿ªÁ¬½Ó
+        //å¯¹æ‰‹ä¸æœåŠ¡å™¨æ–­å¼€è¿æ¥
         if (msg.StartsWith("OpponentLeft:"))
         {
             SceneManger.instance.SwitchScene("Room");
 
-            ShowPopupType2("¶ÔÊÖÓë·şÎñÆ÷¶Ï¿ªÁ¬½Ó");
+            ShowPopupType2("å¯¹æ‰‹ä¸æœåŠ¡å™¨æ–­å¼€è¿æ¥");
             return;
         }
 
-        //¶ÔÊÖÍË³ö·¿¼ä
+        //å¯¹æ‰‹é€€å‡ºæˆ¿é—´
         if (msg.StartsWith("OpponentExitRoom:"))
         {
             SceneManger.instance.SwitchScene("Room");
@@ -491,9 +633,9 @@ public class GameManger : MonoBehaviour
     }
     #endregion
 
-    #region Ïò·şÎñÆ÷·¢ËÍÇëÇó
+    #region å‘æœåŠ¡å™¨å‘é€è¯·æ±‚
 
-    #region »ñÈ¡Íæ¼Ò×´Ì¬
+    #region è·å–ç©å®¶çŠ¶æ€
     public void RequestPlayersStatus()
     {
         if (stream == null || !client.Connected) return;
@@ -504,7 +646,7 @@ public class GameManger : MonoBehaviour
 
     #endregion
 
-    #region  ¼ì²éÍæ¼ÒÊÇ·ñÔÚ·¿¼ä
+    #region  æ£€æŸ¥ç©å®¶æ˜¯å¦åœ¨æˆ¿é—´
     public void SendCheckRoomState()
     {
         if (!IsOnline) return;
@@ -513,11 +655,11 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"¼ì²é·¿¼ä×´Ì¬");
+        Debug.Log($"æ£€æŸ¥æˆ¿é—´çŠ¶æ€");
     }
     #endregion
 
-    #region  ·¢ËÍÍË³ö·¿¼äĞÅÏ¢
+    #region  å‘é€é€€å‡ºæˆ¿é—´ä¿¡æ¯
     public void SendExitRoom() 
     {
         if (!IsOnline) return;
@@ -526,11 +668,11 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log("ÇëÇóÍË³ö·¿¼ä");
+        Debug.Log("è¯·æ±‚é€€å‡ºæˆ¿é—´");
     }
     #endregion
 
-    #region ÑûÇëÏà¹Ø
+    #region é‚€è¯·ç›¸å…³
     public void SendInvite(int targetPlayerId)
     {
         if (!IsOnline) return;
@@ -539,14 +681,14 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"ÏòÍæ¼Ò {targetPlayerId} ·¢ËÍÑûÇë£¨×Ô¼ºID={playerId}£©");
+        Debug.Log($"å‘ç©å®¶ {targetPlayerId} å‘é€é‚€è¯·ï¼ˆè‡ªå·±ID={playerId}ï¼‰");
     }
 
 
     public void AcceptInvite(int inviterId)
     {
         OpponentId = inviterId;
-        Debug.Log($"½ÓÊÜÍæ¼Ò {inviterId} µÄÑûÇë£¬×¼±¸¿ªÊ¼ÓÎÏ·");
+        Debug.Log($"æ¥å—ç©å®¶ {inviterId} çš„é‚€è¯·ï¼Œå‡†å¤‡å¼€å§‹æ¸¸æˆ");
 
         string msg = $"ACCEPT_INVITE:{playerId}->{inviterId}\n";
         byte[] data = Encoding.UTF8.GetBytes(msg);
@@ -555,7 +697,7 @@ public class GameManger : MonoBehaviour
 
     public void RejectInvite(int inviterId)
     {
-        Debug.Log($"¾Ü¾øÍæ¼Ò {inviterId} µÄÑûÇë");
+        Debug.Log($"æ‹’ç»ç©å®¶ {inviterId} çš„é‚€è¯·");
 
         string msg = $"REJECT_INVITE:{playerId}->{inviterId}\n";
         byte[] data = Encoding.UTF8.GetBytes(msg);
@@ -564,7 +706,7 @@ public class GameManger : MonoBehaviour
 
     #endregion
 
-    #region ½»»»Ö´×ÓÏà¹Ø
+    #region äº¤æ¢æ‰§å­ç›¸å…³
     public void SendExchange()
     {
         if (!IsOnline) return;
@@ -573,13 +715,13 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"ÇëÇó½»»»Æå×ÓÀàĞÍ£¬Í¨Öª·¿¼ä¶ÔÊÖ");
+        Debug.Log($"è¯·æ±‚äº¤æ¢æ£‹å­ç±»å‹ï¼Œé€šçŸ¥æˆ¿é—´å¯¹æ‰‹");
     }
 
     public void AcceptExchange(int Id)
     {
         OpponentId = Id;
-        Debug.Log($"½ÓÊÜÍæ¼Ò {Id} µÄ½»»»Æå×ÓÀàĞÍÒªÇó");
+        Debug.Log($"æ¥å—ç©å®¶ {Id} çš„äº¤æ¢æ£‹å­ç±»å‹è¦æ±‚");
 
         string msg = $"ACCEPT_Exchange:{Id}\n";
         byte[] data = Encoding.UTF8.GetBytes(msg);
@@ -587,7 +729,7 @@ public class GameManger : MonoBehaviour
     }
     #endregion
 
-    #region ×¼±¸Ïà¹Ø
+    #region å‡†å¤‡ç›¸å…³
     public void SendReady()
     {
         if (!IsOnline) return;
@@ -596,12 +738,12 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"ÇĞ»»×¼±¸×´Ì¬");
+        Debug.Log($"åˆ‡æ¢å‡†å¤‡çŠ¶æ€");
     }
 
     #endregion
 
-    #region ¿ªÊ¼ÓÎÏ·
+    #region å¼€å§‹æ¸¸æˆ
     public void SendGameStart()
     {
         if (!IsOnline) return;
@@ -610,22 +752,22 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"ÇëÇó¿ªÊ¼ÓÎÏ·");
+        Debug.Log($"è¯·æ±‚å¼€å§‹æ¸¸æˆ");
     }
     #endregion
 
-    #region Âä×Ó
+    #region è½å­
     public void SendLuoziInfo2D(int stoneType, RaycastHit hit)
     {
         Vector3 p = hit.point;
         Vector3 n = hit.normal;
 
-        // ¸ñÊ½: LUOZI:playerId,stoneType,px,py,pz,nx,ny,nz
+        // æ ¼å¼: LUOZI:playerId,stoneType,px,py,pz,nx,ny,nz
         string msg = $"LUOZI:{playerId},{stoneType},{p.x},{p.y},{p.z},{n.x},{n.y},{n.z}\n";
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log("·¢ËÍÂä×ÓĞÅÏ¢: " + msg);
+        Debug.Log("å‘é€è½å­ä¿¡æ¯: " + msg);
     }
 
     public void SendLuoziInfo3D(int idx)
@@ -636,11 +778,11 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"·¢ËÍÂä×ÓĞÅÏ¢");
+        Debug.Log($"å‘é€è½å­ä¿¡æ¯");
     }
     #endregion
 
-    #region  »ÚÆå
+    #region  æ‚”æ£‹
     public void SendHuiQi()
     {
         if (!IsOnline) return;
@@ -649,7 +791,7 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"ÇëÇó»ÚÆå");
+        Debug.Log($"è¯·æ±‚æ‚”æ£‹");
     }
 
     public void AcceptHuiQi(int Id)
@@ -660,7 +802,7 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"Í¬ÒâÍæ¼Ò {Id} µÄ»ÚÆåÇëÇó");
+        Debug.Log($"åŒæ„ç©å®¶ {Id} çš„æ‚”æ£‹è¯·æ±‚");
     }
 
     public void RejectHuiQi(int Id)
@@ -671,11 +813,11 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"¾Ü¾øÍæ¼Ò {Id} µÄ»ÚÆåÇëÇó");
+        Debug.Log($"æ‹’ç»ç©å®¶ {Id} çš„æ‚”æ£‹è¯·æ±‚");
     }
     #endregion
 
-    #region ¹ıÒ»ÊÖ
+    #region è¿‡ä¸€æ‰‹
     public void SendPassTurn()
     {
         if (!IsOnline) return;
@@ -684,11 +826,11 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log("ÇëÇó PassTurn");
+        Debug.Log("è¯·æ±‚ PassTurn");
     }
     #endregion
 
-    #region Í¶½µ
+    #region æŠ•é™
     public void SendResign()
     {
         if (!IsOnline) return;
@@ -701,7 +843,7 @@ public class GameManger : MonoBehaviour
     }
     #endregion
 
-    #region ÇëÇóÔÙÀ´Ò»¾Ö
+    #region è¯·æ±‚å†æ¥ä¸€å±€
     public void SendRestartGame()
     {
         if (!IsOnline) return;
@@ -721,7 +863,7 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"Í¬ÒâÖØĞÂ¿ªÊ¼ÓÎÏ·");
+        Debug.Log($"åŒæ„é‡æ–°å¼€å§‹æ¸¸æˆ");
     }
 
     public void RejectRestartGame()
@@ -732,11 +874,11 @@ public class GameManger : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(msg);
         stream.Write(data, 0, data.Length);
 
-        Debug.Log($"¾Ü¾øÖØĞÂ¿ªÊ¼ÓÎÏ·");
+        Debug.Log($"æ‹’ç»é‡æ–°å¼€å§‹æ¸¸æˆ");
     }
     #endregion
 
-    #region  ¶Ï¿ªÁ¬½Ó
+    #region  æ–­å¼€è¿æ¥
     public void Finally()
     {
         if (stream != null)
@@ -749,16 +891,16 @@ public class GameManger : MonoBehaviour
 
     #endregion
 
-    #region  µ¯´°Ïà¹Ø
+    #region  å¼¹çª—ç›¸å…³
 
-    //id£¬ÏÔÊ¾ÎÄ±¾£¬µ¯´°µÄ¹¦ÄÜ£¨µ¯´°ÖĞ°´Å¥ĞèÒª°ó¶¨²»Í¬º¯Êı£©
+    //idï¼Œæ˜¾ç¤ºæ–‡æœ¬ï¼Œå¼¹çª—çš„åŠŸèƒ½ï¼ˆå¼¹çª—ä¸­æŒ‰é’®éœ€è¦ç»‘å®šä¸åŒå‡½æ•°ï¼‰
     public void ShowPopupType1(int Id, string info, int type)
     {
 
-        // 1. ÊµÀı»¯Ô¤ÖÆÌå
-        GameObject invitePopup = Instantiate(InvitePopupPre, transform); // ¿ÉÒÔÖ¸¶¨¸¸ÎïÌåÎª Canvas
+        // 1. å®ä¾‹åŒ–é¢„åˆ¶ä½“
+        GameObject invitePopup = Instantiate(InvitePopupPre, transform); // å¯ä»¥æŒ‡å®šçˆ¶ç‰©ä½“ä¸º Canvas
 
-        // 2. »ñÈ¡°´Å¥£¨Ê¹ÓÃ GetComponentInChildren£©
+        // 2. è·å–æŒ‰é’®ï¼ˆä½¿ç”¨ GetComponentInChildrenï¼‰
         Button[] buttons = invitePopup.GetComponentsInChildren<Button>();
         Button acceptBtn = null;
         Button rejectBtn = null;
@@ -770,24 +912,24 @@ public class GameManger : MonoBehaviour
             else if (btn.name == "RejectButton") rejectBtn = btn;
         }
 
-        //°´Å¥1£¬°´Å¥2¸÷ÓĞÒ»¸ö£¬´¿ÎÄ±¾ÔÚµÚÈı¸ö
+        //æŒ‰é’®1ï¼ŒæŒ‰é’®2å„æœ‰ä¸€ä¸ªï¼Œçº¯æ–‡æœ¬åœ¨ç¬¬ä¸‰ä¸ª
         texts[2].text = Id + info.ToString();
 
-        // 3. ¶¯Ì¬°ó¶¨º¯Êı
-        if (type == 1)  //ÑûÇë¼ÓÈë·¿¼ä£¬
+        // 3. åŠ¨æ€ç»‘å®šå‡½æ•°
+        if (type == 1)  //é‚€è¯·åŠ å…¥æˆ¿é—´ï¼Œ
         {
             acceptBtn.onClick.AddListener(() => AcceptInvite(Id));
             rejectBtn.onClick.AddListener(() => RejectInvite(Id));
             acceptBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
             rejectBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
         }
-        else if (type == 2)   //ÉêÇë»»Î»
+        else if (type == 2)   //ç”³è¯·æ¢ä½
         {
             acceptBtn.onClick.AddListener(() => AcceptExchange(Id));
             acceptBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
             rejectBtn.onClick.AddListener(() => DestroyPopup(invitePopup));
         }
-        else if (type == 3) //ÉêÇë»ÚÆå
+        else if (type == 3) //ç”³è¯·æ‚”æ£‹
         {
             acceptBtn.onClick.AddListener(() => AcceptHuiQi(Id));
             rejectBtn.onClick.AddListener(() => RejectHuiQi(Id));
@@ -804,7 +946,7 @@ public class GameManger : MonoBehaviour
     }
 
 
-    //id£¬ÏÔÊ¾ÎÄ±¾£¨ËäÈ»ÓĞÒ»¸ö°´Å¥£¬µ«ÊÇ°ó¶¨Í¬Ò»¸öÏú»Ùº¯Êı£¬µ¯´°¹¦ÄÜÀàËÆÓÚÍ¨Öª£©
+    //idï¼Œæ˜¾ç¤ºæ–‡æœ¬ï¼ˆè™½ç„¶æœ‰ä¸€ä¸ªæŒ‰é’®ï¼Œä½†æ˜¯ç»‘å®šåŒä¸€ä¸ªé”€æ¯å‡½æ•°ï¼Œå¼¹çª—åŠŸèƒ½ç±»ä¼¼äºé€šçŸ¥ï¼‰
     public void ShowPopupType2(int Id, string info)
     {
         GameObject RejectPopup = Instantiate(RejectPopupPre, transform);
@@ -833,7 +975,7 @@ public class GameManger : MonoBehaviour
     }
     #endregion
 
-    //°´Å¥Ê§Ğ§Óë»Ö¸´
+    //æŒ‰é’®å¤±æ•ˆä¸æ¢å¤
     public void ResetButtonInteractableFor(Button btn)
     {
         if (btn == null) return;
