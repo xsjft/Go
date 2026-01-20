@@ -1243,6 +1243,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9fcba6fe224ebf64881331efd1254ae9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  BGMClips:
+  - {fileID: 8300000, guid: 86074a21176288a4e9a8ee8de9425b49, type: 3}
+  - {fileID: 8300000, guid: c0f7036d04daa2a40b588e8a09339b79, type: 3}
+  - {fileID: 8300000, guid: 26a1750547d50a04c9ba1e66f3d71e56, type: 3}
+  - {fileID: 8300000, guid: 992932fd7cb2fc34ab3d1177ecf53303, type: 3}
+  - {fileID: 8300000, guid: 1f685a92e57e0a048a730e6fbeaa8b65, type: 3}
+  - {fileID: 8300000, guid: 77e070dce744601488b8d07aa88f4f93, type: 3}
+  - {fileID: 8300000, guid: 726e4ccbb04726d46a233b28e968d375, type: 3}
+  - {fileID: 8300000, guid: 0245efef62f25c94786ec487050c6df0, type: 3}
+  - {fileID: 8300000, guid: 49205829489062a4bbb5d0472b8eeca6, type: 3}
+  - {fileID: 8300000, guid: fdab6255925f75a43adb0aad7310855e, type: 3}
   InGame: 0
   playerId: -1
   OpponentId: -1

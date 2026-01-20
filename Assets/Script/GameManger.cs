@@ -11,6 +11,12 @@ public class GameManger : MonoBehaviour
 {
     public static GameManger instance;
 
+    [Header("音频设置")]
+    // 改为列表，可以在 Inspector 里设置 Size 为 10 并拖入音乐
+    [SerializeField] private List<AudioClip> BGMClips; 
+    private AudioSource bgmSource;
+    private int lastIndex = -1; // 记录上一首的索引，避免连续重复
+
     public bool InGame = false;   //暂时没用到
     public int playerId = -1;
     public int OpponentId = -1;
@@ -28,6 +34,9 @@ public class GameManger : MonoBehaviour
 
     [SerializeField] private GameObject InvitePopupPre;    //邀请弹窗 ,弹窗type1：2按钮，1文本（按钮功能不一定一样）
     [SerializeField] private GameObject RejectPopupPre;  //拒绝弹窗 ,弹窗type2：1按钮，1文本（按钮功能只负责销毁，弹窗类似于通知）
+
+    private GameObject currentinvitePopup;
+    private GameObject currentRejectPopup;
 
     // 玩家状态缓存
     private Dictionary<int, int> PlayersIdToStatus = new Dictionary<int, int>();
@@ -51,6 +60,16 @@ public class GameManger : MonoBehaviour
         {
             instance = this;
             DontDestroyOnLoad(gameObject);
+
+            // 初始化 BGM
+            bgmSource = gameObject.AddComponent<AudioSource>();
+            bgmSource.loop = false;
+            bgmSource.volume = 0.7f; 
+            bgmSource.playOnAwake = false;
+            
+            // 立即开始播放第一首
+            PlayRandomBGM();
+            // ------------------------
         }
         else
         {
@@ -614,6 +633,46 @@ public class GameManger : MonoBehaviour
     }
     #endregion
 
+    #region 播放BGM
+    private void Update()
+    {
+        // 如果 BGM 组件存在，且没有在播放（说明上一首播完了）
+        if (bgmSource != null && !bgmSource.isPlaying)
+        {
+            PlayRandomBGM();
+        }
+    }
+
+    // 随机切歌方法
+    private void PlayRandomBGM()
+    {
+        if (BGMClips == null || BGMClips.Count == 0) return;
+
+        // 如果只有一首，直接循环播放这一首
+        if (BGMClips.Count == 1)
+        {
+            if (bgmSource.clip != BGMClips[0])
+            {
+                bgmSource.clip = BGMClips[0];
+                bgmSource.Play();
+            }
+            return;
+        }
+
+        // 随机取一个索引，且保证不和上一首重复
+        int newIndex = lastIndex;
+        while (newIndex == lastIndex)
+        {
+            newIndex = UnityEngine.Random.Range(0, BGMClips.Count);
+        }
+
+        // 更新记录并播放
+        lastIndex = newIndex;
+        bgmSource.clip = BGMClips[newIndex];
+        bgmSource.Play();
+    }
+    #endregion
+
     #region 落子
     public void SendLuoziInfo2D(int stoneType, RaycastHit hit)
     {
@@ -792,6 +851,75 @@ public class GameManger : MonoBehaviour
         }
     }
 
+    // 终局后弹窗：是否进入复盘（复用 InvitePopupPre）
+    // onAccept: 进入复盘
+    // onReject: 正常退出
+    public void ShowReplayChoicePopup(Action onAccept, Action onReject)
+    {
+        if (currentinvitePopup != null) return; // 避免重复弹窗
+        if (InvitePopupPre == null)
+        {
+            Debug.LogError("InvitePopupPre 未绑定，无法显示复盘选择弹窗");
+            return;
+        }
+
+        currentinvitePopup = Instantiate(InvitePopupPre, transform);
+
+        Button[] buttons = currentinvitePopup.GetComponentsInChildren<Button>();
+        Button acceptBtn = null;
+        Button rejectBtn = null;
+
+        foreach (Button btn in buttons)
+        {
+            if (btn.name == "AcceptButton") acceptBtn = btn;
+            else if (btn.name == "RejectButton") rejectBtn = btn;
+        }
+
+        TMP_Text[] texts = currentinvitePopup.GetComponentsInChildren<TMP_Text>();
+        // 你原来是 texts[2] 作为提示文本（保持一致）
+        if (texts != null && texts.Length >= 3)
+        {
+            texts[2].text = "对局已结束，是否进入复盘？";
+        }
+
+        // 把按钮文字改一下（可选，但推荐）
+        if (acceptBtn != null)
+        {
+            var t = acceptBtn.GetComponentInChildren<TMP_Text>();
+            if (t != null) t.text = "复盘";
+        }
+        if (rejectBtn != null)
+        {
+            var t = rejectBtn.GetComponentInChildren<TMP_Text>();
+            if (t != null) t.text = "退出";
+        }
+
+        // --- 修改重点开始 ---
+        if (acceptBtn != null)
+        {
+            acceptBtn.onClick.RemoveAllListeners();
+            acceptBtn.onClick.AddListener(() =>
+            {
+                onAccept?.Invoke();
+                // 修复：传入 currentinvitePopup 变量
+                DestroyPopup(currentinvitePopup); 
+                currentinvitePopup = null; // 建议：手动置空，防止逻辑残留
+            });
+        }
+
+        if (rejectBtn != null)
+        {
+            rejectBtn.onClick.RemoveAllListeners();
+            rejectBtn.onClick.AddListener(() =>
+            {
+                onReject?.Invoke();
+                // 修复：传入 currentinvitePopup 变量
+                DestroyPopup(currentinvitePopup); 
+                currentinvitePopup = null; // 建议：手动置空
+            });
+        }
+        // --- 修改重点结束 ---
+    }
 
     //id，显示文本（虽然有一个按钮，但是绑定同一个销毁函数，弹窗功能类似于通知）
     public void ShowPopupType2(int Id, string info)
@@ -805,15 +933,23 @@ public class GameManger : MonoBehaviour
         texts[1].text = Id + info.ToString();
     }
 
-    public void ShowPopupType2(string info)
+    public void ShowPopupType2(string info, Action onClose = null)
     {
         GameObject RejectPopup = Instantiate(RejectPopupPre, transform);
 
         Button[] buttons = RejectPopup.GetComponentsInChildren<Button>();
         TMP_Text[] texts = RejectPopup.GetComponentsInChildren<TMP_Text>();
 
+        // 1. 绑定基础销毁
         buttons[0].onClick.AddListener(() => DestroyPopup(RejectPopup));
-        texts[1].text =info.ToString();
+        
+        // 2. 绑定回调
+        if (onClose != null)
+        {
+            buttons[0].onClick.AddListener(() => onClose.Invoke());
+        }
+
+        texts[1].text = info.ToString();
     }
 
     public void DestroyPopup(GameObject Popup)
@@ -835,4 +971,5 @@ public class GameManger : MonoBehaviour
         if (btn != null)
             btn.interactable = true;
     }
+
 }

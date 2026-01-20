@@ -5,6 +5,7 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using TMPro;
 
 /// <summary>
 /// 3D围棋游戏主控制器
@@ -60,6 +61,31 @@ public class PlayerFor3D : MonoBehaviour
     [SerializeField] private float minDistance = 2.5f;            // 最小距离
     [SerializeField] private float maxDistance = 6f;              // 最大距离
     [SerializeField] private float rotate180Duration = 12f;       // 180度旋转动画时长
+
+    [Header("日志显示")]
+    [SerializeField] private TMP_Text LogText;
+    [SerializeField] private int LogMaxLines = 12;
+
+    [Header("复盘UI")]
+    [SerializeField] private GameObject NormalPanel;      // 对应"BottomPanel"
+    [SerializeField] private GameObject ReplayPanel;      // 一个面板，里面放复盘按钮/输入框
+    [SerializeField] private Button ReplayEnterButton;    // “复盘”按钮（对局结束后显示）
+    [SerializeField] private Button ReplayExitButton;     // “退出复盘”
+    [SerializeField] private Button ReplayPrevButton;     // 上一步
+    [SerializeField] private Button ReplayNextButton;     // 下一步
+    [SerializeField] private Button ReplayPlayPauseButton;// 自动播放/暂停
+    [SerializeField] private TMP_Text ReplayPlayPauseText;// 显示“播放/暂停”
+    [SerializeField] private Button ReplayJumpButton;        // 跳转按钮
+    [SerializeField] private TMP_Text ReplayInfoText;        // 显示“白-第45手”等
+    [SerializeField] private float ReplayAutoInterval = 0.6f;
+    [SerializeField] private GameObject ReplayJumpPopupPre;
+    [SerializeField] private GameObject ReplayJumpItemPre;
+
+    [Header("音效")]
+    [SerializeField] private AudioClip StonePlaceClip; // 拖入落子声 .wav
+    [Range(0.8f, 1.2f)]
+    [SerializeField] private float PitchRandomRange = 0.1f; // 音调随机范围
+    private AudioSource sfxSource;
 
     #endregion
 
@@ -151,6 +177,14 @@ public class PlayerFor3D : MonoBehaviour
     private GameObject currentMarkerObj;
     private int lastMoveIndex = -1;                 // 最后一步落子的索引 (-1表示无)
 
+    // ===== 复盘状态 =====
+    private bool inReplayMode = false;
+    private List<GameState> replayTimeline = new List<GameState>(); // 从初始到终局的快照
+    private int replayCursor = 0; // 当前播放到第几手（0=初始）
+    private bool replayAutoPlaying = false;
+    private Coroutine replayAutoCo = null;
+
+
     #endregion
 
     #region Unity生命周期
@@ -191,6 +225,20 @@ public class PlayerFor3D : MonoBehaviour
         ResignButton.interactable = false;
         ExitButton.interactable = false;
         FocusLastMoveButton.interactable = false;
+
+        if (ReplayEnterButton != null)
+            ReplayEnterButton.onClick.AddListener(UI_EnterReplay);
+        if (ReplayExitButton != null)
+            ReplayExitButton.onClick.AddListener(UI_ExitReplay);
+        if (ReplayPrevButton != null)
+            ReplayPrevButton.onClick.AddListener(UI_ReplayPrev);
+        if (ReplayNextButton != null)
+            ReplayNextButton.onClick.AddListener(UI_ReplayNext);
+        if (ReplayPlayPauseButton != null)
+            ReplayPlayPauseButton.onClick.AddListener(UI_ReplayPlayPause);
+        if (ReplayJumpButton != null)
+            ReplayJumpButton.onClick.AddListener(UI_OpenReplayJumpPopup);
+
     }
 
     private void Start()
@@ -213,6 +261,14 @@ public class PlayerFor3D : MonoBehaviour
         // 初始空局面入栈时，记录 lastMoveIndex 为 -1
         PushUndoState(GetBoardState());
 
+        // 初始化面板状态
+        if (NormalPanel != null) NormalPanel.SetActive(true);
+        if (ReplayPanel != null) ReplayPanel.SetActive(false);
+
+        // 初始化音效
+        sfxSource = gameObject.AddComponent<AudioSource>();
+        sfxSource.playOnAwake = false;
+
         // 实例化标记点（开始时隐藏）
         if (LastMoveMarkerPrefab != null)
         {
@@ -229,6 +285,9 @@ public class PlayerFor3D : MonoBehaviour
 
         // 处理相机输入
         HandleCameraInput();
+
+        // 复盘模式：禁止落子/弃权/悔棋/投降等输入，只允许相机与复盘UI
+        if (inReplayMode) return;
 
         // 游戏结束则不处理输入
         if (gameOver) return;
@@ -493,7 +552,7 @@ public class PlayerFor3D : MonoBehaviour
             if (myHead < 0 || !groupsAfterCapture.ContainsKey(myHead) || groupsAfterCapture[myHead].liberties.Count == 0)
             {
                 Rollback(before, beforeState);
-                Log($"[非法] 自杀禁手：落子点 {idx}（{ColorName(color)}）无气。");
+                Log($"[非法] 自杀：落子点 {idx}（{ColorName(color)}）无气。");
                 return;
             }
         }
@@ -503,7 +562,7 @@ public class PlayerFor3D : MonoBehaviour
         if (useSuperKo && boardHistory.Contains(newState))
         {
             Rollback(before, beforeState);
-            Log($"[非法] 超级劫：该落子会复现历史局面。点 {idx}（{ColorName(color)}）");
+            Log($"[非法] 劫。点 {idx}（{ColorName(color)}）");
             return;
         }
 
@@ -514,6 +573,15 @@ public class PlayerFor3D : MonoBehaviour
         // 更新最后一步的索引并刷新显示
         lastMoveIndex = idx;
         UpdateLastMoveMarker();
+
+        // 播放落子音效
+        if (sfxSource != null && StonePlaceClip != null)
+        {
+            // 随机改变一点点音调，让声音听起来不那么单调
+            sfxSource.pitch = 1.0f + UnityEngine.Random.Range(-PitchRandomRange, PitchRandomRange);
+            // PlayOneShot 适合短音效，它允许声音重叠（比如快速落子时）
+            sfxSource.PlayOneShot(StonePlaceClip,0.7f);
+        }
 
         // 如果是联网模式，向对方发送落子位置
         if (IsOnline)
@@ -961,9 +1029,24 @@ public class PlayerFor3D : MonoBehaviour
     {
         ClearTempStone();
 
-        string win = blackTurn ? "白棋获胜" : "黑棋获胜";
-        GameManger.instance.ShowPopupType2(win);
+        // 1. 设置游戏结束状态
         gameOver = true;
+
+        // 2. 准备显示文本
+        string win = blackTurn ? "白棋获胜" : "黑棋获胜";
+
+        // 3. 弹出胜负结果，并绑定关闭后的回调
+        GameManger.instance.ShowPopupType2(
+            win,
+            onClose: () => 
+            {
+                // 当用户点击“关闭”按钮后，弹出复盘询问
+                GameManger.instance.ShowReplayChoicePopup(
+                    onAccept: () => UI_EnterReplay(),
+                    onReject: () => { }
+                );
+            }
+        );
     }
 
     /// <summary>
@@ -975,7 +1058,22 @@ public class PlayerFor3D : MonoBehaviour
 
         var result = CalculateAreaScore(komi, out float blackScore, out float whiteScore);
 
-        GameManger.instance.ShowPopupType2("双方各停一手，\n游戏结束。\n\n" + result);
+        // 1. 先弹出结算结果
+        GameManger.instance.ShowPopupType2(
+            "双方各停一手，\n游戏结束。\n\n" + result, 
+            
+            // 2. 这里的代码会在用户点击"关闭"按钮后执行
+            onClose: () => 
+            {
+                // 3. 结算关闭后，再弹出复盘询问
+                GameManger.instance.ShowReplayChoicePopup(
+                    onAccept: () => UI_EnterReplay(),
+                    onReject: () => { }
+                );
+            }
+        );
+        
+        // --- 修改结束 ---
     }
 
     
@@ -1264,10 +1362,25 @@ public class PlayerFor3D : MonoBehaviour
     /// <summary>
     /// 输出日志（可开关）
     /// </summary>
+    private readonly Queue<string> _uiLogLines = new Queue<string>();
+
     private void Log(string msg)
     {
         if (!enableLog) return;
+
         Debug.Log(msg);
+
+        if (LogText == null) return;
+
+        // 追加一行（也可以加时间戳）
+        _uiLogLines.Enqueue(msg);
+
+        // 控制最大行数
+        while (_uiLogLines.Count > LogMaxLines)
+            _uiLogLines.Dequeue();
+
+        // 刷新文本
+        LogText.text = string.Join("\n", _uiLogLines);
     }
 
     /// <summary>
@@ -1356,9 +1469,7 @@ public class PlayerFor3D : MonoBehaviour
         }
         else
         {
-            string win = blackTurn ? "白棋获胜" : "黑棋获胜";
-            GameManger.instance.ShowPopupType2(win);
-            gameOver = true;
+            Resign();
         }
     }
 
@@ -1402,7 +1513,7 @@ public class PlayerFor3D : MonoBehaviour
         StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
     }
 
-private void OnDisable()
+    private void OnDisable()
     {
         // 移除所有事件监听，防止内存泄漏和报错
         if (GameManger.instance != null)
@@ -1415,6 +1526,318 @@ private void OnDisable()
         }
     }
 
-
      #endregion
+
+     #region 复盘相关
+    
+// 复盘时间线构建
+    private void BuildReplayTimelineFromUndoStack()
+    {
+        replayTimeline.Clear();
+
+        // 1. 标准转换：undoStack 是后进先出，要反转成从早到晚
+        var arr = undoStack.ToArray();          // 顶部在 [0]
+        Array.Reverse(arr);                     // 现在 [0] 是最早快照
+
+        replayTimeline.AddRange(arr);
+
+        // 防御：至少要有初始局面
+        if (replayTimeline.Count == 0)
+        {
+            PushUndoState(GetBoardState());
+            arr = undoStack.ToArray();
+            Array.Reverse(arr);
+            replayTimeline.AddRange(arr);
+        }
+
+        // 如果是因为连续停一手（consecutivePasses >= 2）导致的结束，则删去最后那两步“空操作”。
+        if (endOnTwoPasses && consecutivePasses >= 2)
+        {
+            // 确保时间线足够长（至少有 开局 + Pass1 + Pass2 = 3个状态）
+            // 移除最后两个状态
+            if (replayTimeline.Count >= 3)
+            {
+                // 移除最后一个 (Pass2)
+                replayTimeline.RemoveAt(replayTimeline.Count - 1);
+                // 再移除现在的最后一个 (Pass1)
+                replayTimeline.RemoveAt(replayTimeline.Count - 1);
+                
+                // 将新的最后一手的 consecutivePasses 设为 0，防止逻辑混淆
+                var last = replayTimeline[replayTimeline.Count - 1];
+                last.consecutivePasses = 0;
+                replayTimeline[replayTimeline.Count - 1] = last;
+            }
+        }
+    }
+
+// 进入复盘
+    public void UI_EnterReplay()
+    {
+        if (!gameOver) return; // 只有终局后允许复盘
+
+        // 构建时间线
+        BuildReplayTimelineFromUndoStack();
+
+        inReplayMode = true;
+        replayAutoPlaying = false;
+        if (replayAutoCo != null) StopCoroutine(replayAutoCo);
+
+        // 默认从0开始看
+        replayCursor = 0;
+        ApplyReplayState(replayCursor);
+
+        // 面板切换
+        if (NormalPanel != null) NormalPanel.SetActive(false); // 隐藏正常游戏面板
+        if (ReplayPanel != null) ReplayPanel.SetActive(true);  // 显示复盘面板
+
+        UpdateReplayUI();
+    }
+
+    // 退出复盘
+    public void UI_ExitReplay()
+    {
+        if (!inReplayMode) return;
+
+        inReplayMode = false;
+        replayAutoPlaying = false;
+        if (replayAutoCo != null) StopCoroutine(replayAutoCo);
+        replayAutoCo = null;
+
+        // 恢复到复盘时间线的最后一步（恢复棋盘显示）
+        ApplyReplayState(replayTimeline.Count - 1);
+
+        // 锁定游戏为“结束状态”,防止因为恢复了历史存档，导致系统误以为游戏还没结束。
+        gameOver = true;
+
+        // 面板切换
+        if (ReplayPanel != null) ReplayPanel.SetActive(false); 
+        if (NormalPanel != null) NormalPanel.SetActive(true);  
+        
+        // 立即刷新按钮状态（禁用落子、悔棋等按钮，只保留退出/重开）
+        UpdateButtonStates();
+    }
+
+    // 应用复盘局面
+    private void ApplyReplayState(int cursor)
+    {
+        cursor = Mathf.Clamp(cursor, 0, replayTimeline.Count - 1);
+        replayCursor = cursor;
+
+        GameState s = replayTimeline[replayCursor];
+
+        stoneType = (int[])s.stoneType.Clone();
+        blackTurn = s.blackTurn;
+        moveNumber = s.moveNumber;
+        consecutivePasses = s.consecutivePasses;
+        gameOver = s.gameOver;
+
+        lastMoveIndex = s.lastMoveIndex;
+
+        // 复盘是本地显示
+        RebuildVisualFromState(stoneType);
+        ClearTempStone();
+        UpdateLastMoveMarker();
+
+        UpdateReplayUI();
+    }
+
+    // 复盘上一步
+    public void UI_ReplayPrev()
+    {
+        if (!inReplayMode) return;
+        replayAutoPlaying = false;
+        if (replayAutoCo != null) StopCoroutine(replayAutoCo);
+        ApplyReplayState(replayCursor - 1);
+    }
+
+    // 复盘下一步
+    public void UI_ReplayNext()
+    {
+        if (!inReplayMode) return;
+        replayAutoPlaying = false;
+        if (replayAutoCo != null) StopCoroutine(replayAutoCo);
+        ApplyReplayState(replayCursor + 1);
+    }
+
+    // 复盘自动播放按钮
+    public void UI_ReplayPlayPause()
+    {
+        if (!inReplayMode) return;
+
+        replayAutoPlaying = !replayAutoPlaying;
+        if (replayAutoPlaying)
+        {
+            if (replayAutoCo != null) StopCoroutine(replayAutoCo);
+            replayAutoCo = StartCoroutine(ReplayAutoCoroutine());
+        }
+        else
+        {
+            if (replayAutoCo != null) StopCoroutine(replayAutoCo);
+            replayAutoCo = null;
+        }
+
+        UpdateReplayUI();
+    }
+
+    // 自动播放
+    private System.Collections.IEnumerator ReplayAutoCoroutine()
+    {
+        while (inReplayMode && replayAutoPlaying)
+        {
+            if (replayCursor >= replayTimeline.Count - 1)
+            {
+                replayAutoPlaying = false;
+                UpdateReplayUI();
+                yield break;
+            }
+
+            ApplyReplayState(replayCursor + 1);
+            yield return new WaitForSeconds(ReplayAutoInterval);
+        }
+    }
+
+public void UI_OpenReplayJumpPopup()
+    {
+        if (!inReplayMode) return;
+
+        var items = new List<(int moveNum, int timelineIndex)>();
+        for (int i = 0; i < replayTimeline.Count; i++)
+        {
+            int m = replayTimeline[i].moveNumber;
+            if (m <= 0) continue;
+            items.Add((m, i));
+        }
+
+        ShowReplayJumpPopup(items, (selectedIndex) =>
+        {
+            replayAutoPlaying = false;
+            if (replayAutoCo != null) StopCoroutine(replayAutoCo);
+            replayAutoCo = null;
+
+            ApplyReplayState(selectedIndex);
+        });
+    }
+
+    private int FindReplayIndexByMoveNumber(int moveNum)
+    {
+        // 简单线性查（步数不大足够用）
+        for (int i = 0; i < replayTimeline.Count; i++)
+        {
+            if (replayTimeline[i].moveNumber == moveNum)
+                return i;
+        }
+        return -1;
+    }
+
+    // 更新复盘UI
+    private void UpdateReplayUI()
+    {
+        if (!inReplayMode)
+        {
+            if (ReplayPanel != null) ReplayPanel.SetActive(false);
+            return;
+        }
+
+        // 按钮可用性控制
+        if (ReplayPrevButton != null) ReplayPrevButton.interactable = replayCursor > 0;
+        if (ReplayNextButton != null) ReplayNextButton.interactable = replayCursor < replayTimeline.Count - 1;
+
+        if (ReplayPlayPauseText != null)
+            ReplayPlayPauseText.text = replayAutoPlaying ? "暂停" : "播放";
+
+        if (ReplayInfoText != null)
+        {
+            GameState s = replayTimeline[replayCursor];
+            
+            if (s.moveNumber == 0)
+            {
+                ReplayInfoText.text = "当前：开局";
+            }
+            else
+            {
+                // 规则：奇数手=黑，偶数手=白
+                string colorStr = (s.moveNumber % 2 != 0) ? "黑棋" : "白棋";
+                
+                // 显示格式：当前：第32手（白棋）
+                ReplayInfoText.text = $"当前：第{s.moveNumber}手（{colorStr}）";
+            }
+        }
+        // --- 修改部分结束 ---
+    }
+
+    // 在本地处理复盘跳转弹窗
+    private void ShowReplayJumpPopup(List<(int moveNum, int timelineIndex)> items, Action<int> onSelectIndex)
+    {
+        if (ReplayJumpPopupPre == null || ReplayJumpItemPre == null)
+        {
+            Debug.LogError("PlayerFor3D: ReplayJumpPopupPre / ReplayJumpItemPre 未绑定！");
+            return;
+        }
+
+        // 1. 实例化 (不再强制设为 ReplayPanel 的子物体)
+        // 使用 transform (PlayerFor3D) 作为挂载点，或者 null 也可以
+        // 因为 Canvas 是 Overlay 模式，它会自动覆盖全屏，不受父物体位置影响
+        GameObject popup = Instantiate(ReplayJumpPopupPre, transform);
+
+        // 2. 查找 ScrollRect 和 Content
+        // 因为你的结构是 Root -> Canvas -> Background -> ScrollView
+        // 使用 GetComponentInChildren 可以自动找到深层的组件
+        ScrollRect scrollRect = popup.GetComponentInChildren<ScrollRect>();
+        if (scrollRect == null || scrollRect.content == null)
+        {
+            Debug.LogError("在预制体中找不到 ScrollRect 或 Content，请检查预制体结构");
+            Destroy(popup);
+            return;
+        }
+        Transform content = scrollRect.content;
+
+        // 3. 清空旧数据 (防止预制体里自带测试用的子物体)
+        foreach (Transform child in content) Destroy(child.gameObject);
+
+        // 4. 生成按钮
+        foreach (var it in items)
+        {
+            int moveNum = it.moveNum;
+            int idx = it.timelineIndex;
+            string cName = (moveNum % 2 != 0) ? "黑" : "白"; 
+            string label = $"{cName}-第{moveNum}手";
+
+            GameObject item = Instantiate(ReplayJumpItemPre, content);
+            
+            // 确保 Item 缩放正确
+            item.transform.localScale = Vector3.one; 
+            // 修正 Z 轴 (防止 Grid Layout Group 排列时产生微小偏移)
+            Vector3 localPos = item.transform.localPosition;
+            item.transform.localPosition = new Vector3(localPos.x, localPos.y, 0);
+
+            var btn = item.GetComponentInChildren<Button>();
+            var txt = item.GetComponentInChildren<TMP_Text>();
+            
+            if (txt != null) txt.text = label;
+            if (btn != null)
+            {
+                btn.onClick.AddListener(() =>
+                {
+                    onSelectIndex?.Invoke(idx);
+                    Destroy(popup);
+                });
+            }
+        }
+
+        // 5. 绑定关闭按钮
+        // 你的截图里有一个叫 "CloseButton" 或者 "Cancel"
+        Button[] allBtns = popup.GetComponentsInChildren<Button>();
+        foreach (var btn in allBtns)
+        {
+            // 匹配名字包含 Cancel, Close, Back 的按钮作为关闭键
+            if (btn.gameObject.name.Contains("Cancel") || btn.gameObject.name.Contains("Close") || btn.gameObject.name.Contains("Back"))
+            {
+                btn.onClick.RemoveAllListeners();
+                btn.onClick.AddListener(() => Destroy(popup));
+            }
+        }
+    }
+
+    #endregion
+
 }

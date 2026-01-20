@@ -51,3 +51,8 @@ git
 # Unity local user settings
 UserSettings/
 
+# Unity temp sync files
+Assets/~UnityDirMonSyncFile~*
+
+# Local sockets / misc
+gui-sock-*
