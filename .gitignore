@@ -1,4 +1,4 @@
-# Unity 自动生成/缓存文件夹（核心排除）
+# Unity 锟皆讹拷锟斤拷锟斤拷/锟斤拷锟斤拷锟侥硷拷锟叫ｏ拷锟斤拷锟斤拷锟脚筹拷锟斤拷
 /Library/
 /Temp/
 /Logs/
@@ -7,13 +7,13 @@
 /Build/
 /Builds/
 
-# 编译产物和日志
+# 锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷志
 Player.log
 UnityPlayer.log
 *.pidb
 *.pdb.meta
 
-# 编辑器配置文件（VS Code/IDE）
+# 锟洁辑锟斤拷锟斤拷锟斤拷锟侥硷拷锟斤拷VS Code/IDE锟斤拷
 /.vs/
 /.idea/
 /.vscode/
@@ -22,7 +22,7 @@ UnityPlayer.log
 *.sln.docstates
 *.csproj.user
 
-# 资源源文件/备份（不上传）
+# 锟斤拷源源锟侥硷拷/锟斤拷锟捷ｏ拷锟斤拷锟较达拷锟斤拷
 *.blend
 *.blend1
 *.psd
@@ -31,10 +31,10 @@ UnityPlayer.log
 *.obj.bak
 *.fbx.bak
 *.tiff
-/Assets/Models/Source/  # Blender 源文件文件夹（本地保留）
-/Assets/Textures/Originals/  # 贴图原图文件夹（本地保留）
+/Assets/Models/Source/  # Blender 源锟侥硷拷锟侥硷拷锟叫ｏ拷锟斤拷锟截憋拷锟斤拷锟斤拷
+/Assets/Textures/Originals/  # 锟斤拷图原图锟侥硷拷锟叫ｏ拷锟斤拷锟截憋拷锟斤拷锟斤拷
 
-# 系统/冗余文件
+# 系统/锟斤拷锟斤拷锟侥硷拷
 *.DS_Store
 Thumbs.db
 *.zip
@@ -51,3 +51,4 @@ git
 # Unity local user settings
 UserSettings/
 
+UserSettings/Layouts/default-2021.dwlt
