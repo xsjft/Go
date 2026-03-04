@@ -272,21 +272,21 @@ public class UIButtonHandleRoom : MonoBehaviour
     {
         if (GameManger.instance.MyReadyStatus)
         {
-            MyReadyText.text = "Ready";
+            MyReadyText.text = "已准备";
             StartButton.interactable = true;
         }
         else
         {
-            MyReadyText.text = "NotReady";
+            MyReadyText.text = "未准备";
             StartButton.interactable= false;
         }
         if (GameManger.instance.OpponentReadyStatus)
         {
-            OpponentReadyText.text = "Ready";
+            OpponentReadyText.text = "已准备";
         }
         else
         {
-            OpponentReadyText.text = "NotReady";
+            OpponentReadyText.text = "未准备";
         }
     }
     #endregion
@@ -295,7 +295,7 @@ public class UIButtonHandleRoom : MonoBehaviour
     public void ExitRoom()
     {
         GameManger.instance.SendExitRoom();
-        SceneManger.instance.SwitchScene("Room");
+        SceneManger.instance.SwitchScene("房间");
     }
 
     //退出到主界面
@@ -304,7 +304,7 @@ public class UIButtonHandleRoom : MonoBehaviour
         GameManger.instance.SendExitRoom();
         GameManger.instance.Finally();
         GameManger.instance.Destroy();
-        SceneManger.instance.SwitchScene("Logic");
+        SceneManger.instance.SwitchScene("主界面");
     }
 
     private void JoinRoom(int Id)    //加入房间后具体ui操作代码
@@ -316,13 +316,13 @@ public class UIButtonHandleRoom : MonoBehaviour
 
         if (GameManger.instance.PlayerType == 1) //黑
         {
-            MyTypeText.text = "black";
-            OpponentTypeText.text= "white";
+            MyTypeText.text = "黑";
+            OpponentTypeText.text= "白";
         }
         else
         {
-            MyTypeText.text = "white";
-            OpponentTypeText.text = "black";
+            MyTypeText.text = "白";
+            OpponentTypeText.text = "黑";
         }
 
         ChangeReadyStatus();
