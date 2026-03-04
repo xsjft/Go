@@ -23,6 +23,12 @@ public class SceneManger : MonoBehaviour
 
     public void SwitchScene(string name)
     {
+        GameManger.instance.ClearPopups();
         SceneManager.LoadScene(name); // ³¡¾°Ãû×Ö
+    }
+
+    public string GetScreenName()
+    {
+        return SceneManager.GetActiveScene().name;
     }
 }

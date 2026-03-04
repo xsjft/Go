@@ -170,7 +170,7 @@ public class UIButtonHandleRoom : MonoBehaviour
     //创建
     private void CreateNewItem(int playerId, int type)
     {
-        GameObject prefab = (type == 0) ? PlayerInviteItem : PlayerStatusItem;
+        GameObject prefab = (type == 1 || type == 3) ? PlayerStatusItem : PlayerInviteItem;
         GameObject item = Instantiate(prefab, List.transform);
 
         // Update text
@@ -181,7 +181,7 @@ public class UIButtonHandleRoom : MonoBehaviour
         }
 
         // If invite type, bind button event
-        if (type == 0)
+        if (type == 0)   
         {
             Button inviteBtn = item.GetComponentInChildren<Button>();
             if (inviteBtn != null)
@@ -197,14 +197,25 @@ public class UIButtonHandleRoom : MonoBehaviour
 
         if(type == 2)
         {
-            texts[1].text = "Gaming";
+            Button spectateBtn = item.GetComponentInChildren<Button>();
+            TMP_Text text = spectateBtn.GetComponentInChildren<TMP_Text>();
+            text.text = "Spectate";
+            if (spectateBtn != null)
+            {
+                spectateBtn.onClick.AddListener(() => OnSpectateButtonClicked(spectateBtn, playerId));
+            }
+        }
+
+        if (type == 3)   
+        {
+            texts[1].text = "Spectating";
         }
 
         // Save reference
         PlayerIdToItem[playerId] = item;
     }
 
-    #region 玩家状态列表：邀请按钮失效与恢复
+    #region 玩家状态列表：邀请、观战按钮失效与恢复
     private void OnInviteButtonClicked(Button btn, int playerId)
     {
         if (!btn.interactable) return;
@@ -212,6 +223,17 @@ public class UIButtonHandleRoom : MonoBehaviour
         Debug.Log($"邀请玩家 {playerId}");
 
         GameManger.instance.SendInvite(playerId);
+
+        StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
+    }
+
+    private void OnSpectateButtonClicked(Button btn, int playerId)
+    {
+        if (!btn.interactable) return;
+
+        Debug.Log($"观战玩家 {playerId}");
+
+        GameManger.instance.SendSpectate(playerId);
 
         StartCoroutine(GameManger.instance.ResetButtonInteractable(btn));
     }
@@ -269,13 +291,21 @@ public class UIButtonHandleRoom : MonoBehaviour
     }
     #endregion
 
-    #region 退出房间
+    //退出房间
     public void ExitRoom()
     {
         GameManger.instance.SendExitRoom();
         SceneManger.instance.SwitchScene("Room");
     }
-    #endregion
+
+    //退出到主界面
+    public void ExitToLogic()
+    {
+        GameManger.instance.SendExitRoom();
+        GameManger.instance.Finally();
+        GameManger.instance.Destroy();
+        SceneManger.instance.SwitchScene("Logic");
+    }
 
     private void JoinRoom(int Id)    //加入房间后具体ui操作代码
     {

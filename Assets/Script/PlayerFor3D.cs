@@ -6,6 +6,8 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using TMPro;
+using static UnityEngine.GraphicsBuffer;
+using Unity.VisualScripting;
 
 /// <summary>
 /// 3D围棋游戏主控制器
@@ -15,7 +17,11 @@ public class PlayerFor3D : MonoBehaviour
 {
     #region 序列化字段 
 
-    [Header("UI按钮")]
+    [Header("棋子大小滑动条")]
+    [SerializeField] private Slider slider;
+    [SerializeField] private TMP_Text sliderValueText; 
+
+    [Header("正常游玩UI")]
     [SerializeField] private Button RestartGameButton;
     [SerializeField] private Button HuiQiButton;
     [SerializeField] private Button PassTurnButton;
@@ -66,9 +72,12 @@ public class PlayerFor3D : MonoBehaviour
     [SerializeField] private TMP_Text LogText;
     [SerializeField] private int LogMaxLines = 12;
 
+    [Header("UI画布")]
+    [SerializeField] private GameObject NormalPanel;      // 对应"BottomPanel"，正常游玩ui
+    [SerializeField] private GameObject ReplayPanel;      //复盘ui
+    [SerializeField] private GameObject SpectatePanel;    //观战ui
+
     [Header("复盘UI")]
-    [SerializeField] private GameObject NormalPanel;      // 对应"BottomPanel"
-    [SerializeField] private GameObject ReplayPanel;      // 一个面板，里面放复盘按钮/输入框
     [SerializeField] private Button ReplayEnterButton;    // “复盘”按钮（对局结束后显示）
     [SerializeField] private Button ReplayExitButton;     // “退出复盘”
     [SerializeField] private Button ReplayPrevButton;     // 上一步
@@ -165,9 +174,12 @@ public class PlayerFor3D : MonoBehaviour
     // 联机信息
     private int PlayerType;                         // 1黑2白
     private bool IsOnline;                          // 是否联机模式
+    private bool IsOpponentOnline = true;
 
     // 相机控制
-    private Camera cam;
+    [Header("相机")]
+    [SerializeField] private Camera cam;
+    [SerializeField] private Camera backCam;
     private float yaw;                              // 水平旋转角
     private float pitch;                            // 垂直旋转角
     private float distance;                         // 相机距离
@@ -217,6 +229,7 @@ public class PlayerFor3D : MonoBehaviour
         GameManger.instance.OnHuiQiSuccess += Undo;
         GameManger.instance.OnPassTurnRecived += Pass;
         GameManger.instance.OnResignRecived += Resign;
+        GameManger.instance.OnOpponentExit += OpponentExit;
 
         // 初始化按钮状态
         RestartGameButton.interactable = false;
@@ -239,6 +252,9 @@ public class PlayerFor3D : MonoBehaviour
         if (ReplayJumpButton != null)
             ReplayJumpButton.onClick.AddListener(UI_OpenReplayJumpPopup);
 
+        // 监听滑动条值变化事件
+        slider.value = 1;
+        slider.onValueChanged.AddListener(OnSliderValueChanged);
     }
 
     private void Start()
@@ -264,6 +280,7 @@ public class PlayerFor3D : MonoBehaviour
         // 初始化面板状态
         if (NormalPanel != null) NormalPanel.SetActive(true);
         if (ReplayPanel != null) ReplayPanel.SetActive(false);
+        if(SpectatePanel != null) SpectatePanel.SetActive( false);
 
         // 初始化音效
         sfxSource = gameObject.AddComponent<AudioSource>();
@@ -279,12 +296,14 @@ public class PlayerFor3D : MonoBehaviour
 
     private void Update()
     {
+        // 处理相机输入
+        HandleCameraInput();
+
         // 更新UI按钮状态
         UpdateButtonStates();
 
-
-        // 处理相机输入
-        HandleCameraInput();
+        //观战模式
+        if (PlayerType == 3 && !gameOver) return;
 
         // 复盘模式：禁止落子/弃权/悔棋/投降等输入，只允许相机与复盘UI
         if (inReplayMode) return;
@@ -376,9 +395,28 @@ public class PlayerFor3D : MonoBehaviour
     /// </summary>
     private void UpdateButtonStates()
     {
+        if(inReplayMode)
+        {
+            NormalPanel.SetActive(false);
+            ReplayPanel.SetActive(true);
+            SpectatePanel.SetActive(false);
+            return;
+        }
+
+        if(PlayerType == 3) //观战模式下，仅显示观战ui
+        {
+            NormalPanel.SetActive(false);
+            ReplayPanel.SetActive(false);
+            SpectatePanel.SetActive(true);
+            return;
+        }
+
         if (gameOver)
         {
-            RestartGameButton.interactable = true;
+            if (IsOpponentOnline)
+            {
+                RestartGameButton.interactable = true;
+            }
             HuiQiButton.interactable = false;
             PassTurnButton.interactable = false;
             ResignButton.interactable = false;
@@ -583,8 +621,8 @@ public class PlayerFor3D : MonoBehaviour
             sfxSource.PlayOneShot(StonePlaceClip,0.7f);
         }
 
-        // 如果是联网模式，向对方发送落子位置
-        if (IsOnline)
+        // 如果是联网模式且是自己的回合，向对方发送落子位置
+        if (IsOnline && CheckTurn())
         {
             GameManger.instance.SendLuoziInfo3D(idx);
         }
@@ -828,7 +866,7 @@ public class PlayerFor3D : MonoBehaviour
         Vector3 localNormal = targetLocalPos.normalized;
 
         // 3. 调整偏移量 
-        float surfaceOffset = 0.03f; 
+        float surfaceOffset = StoneSize.x/2; 
 
         // 设置标记的【本地位置】
         currentMarkerObj.transform.localPosition = targetLocalPos + localNormal * surfaceOffset;
@@ -1032,6 +1070,8 @@ public class PlayerFor3D : MonoBehaviour
         // 1. 设置游戏结束状态
         gameOver = true;
 
+        ExitSpectateOnEnd();
+
         // 2. 准备显示文本
         string win = blackTurn ? "白棋获胜" : "黑棋获胜";
 
@@ -1055,6 +1095,8 @@ public class PlayerFor3D : MonoBehaviour
     private void EndGameByTwoPasses()
     {
         gameOver = true;
+
+        ExitSpectateOnEnd();
 
         var result = CalculateAreaScore(komi, out float blackScore, out float whiteScore);
 
@@ -1167,7 +1209,6 @@ public class PlayerFor3D : MonoBehaviour
     /// </summary>
     private void InitCameraOrbit()
     {
-        cam = Camera.main;
         if (cam == null)
         {
             Debug.LogError("Main Camera not found. 请给相机设置 Tag=MainCamera");
@@ -1250,6 +1291,15 @@ public class PlayerFor3D : MonoBehaviour
         Vector3 pos = cameraTarget.position + rot * new Vector3(0f, 0f, -distance);
 
         cam.transform.position = pos;
+
+        //背摄像机位置与主摄像关于中心点对称
+        Vector3 center = cameraTarget.position;
+        Vector3 mainPos = cam.transform.position;
+
+        // 位置关于中心点对称
+        Vector3 backPos = center * 2f - mainPos;
+
+        backCam.transform.position = backPos;
 
         // 【删除】原来的 LookAt，因为它会导致越过极点时的翻转跳变
         // cam.transform.LookAt(cameraTarget.position); 
@@ -1611,7 +1661,7 @@ public class PlayerFor3D : MonoBehaviour
 
         // 面板切换
         if (ReplayPanel != null) ReplayPanel.SetActive(false); 
-        if (NormalPanel != null) NormalPanel.SetActive(true);  
+        if (NormalPanel != null && PlayerType != 3) NormalPanel.SetActive(true);  
         
         // 立即刷新按钮状态（禁用落子、悔棋等按钮，只保留退出/重开）
         UpdateButtonStates();
@@ -1840,4 +1890,35 @@ public void UI_OpenReplayJumpPopup()
 
     #endregion
 
+    //棋子大小滑动条监听
+    private void OnSliderValueChanged(float value)
+    {
+        float fixedValue = Mathf.Round(value * 100) / 100 ;
+        sliderValueText.text = "Size:" + fixedValue.ToString();
+        StoneSize = Vector3.one * (fixedValue /10);//原始尺寸就是0.1，所以在1的时候应该是0.1尺寸
+        currentMarkerObj.transform.localScale  = new Vector3(0.05f*fixedValue,0.05f*fixedValue,0.05f*fixedValue);
+        RebuildVisualFromState(stoneType);
+        OnFocusLastMoveClicked();
+    }
+    
+    //退出观战模式
+    public void ExitSpectate()
+    {
+        if(!gameOver)
+        GameManger.instance.SendExitSpectate();
+        SceneManger.instance.SwitchScene("Room");
+    }
+
+    //对手退出房间
+    private void OpponentExit()
+    {
+        IsOpponentOnline = false;
+    }
+
+    //游戏结束自动退出观战
+    private void ExitSpectateOnEnd()
+    {
+        if(PlayerType == 3)
+        GameManger.instance.SendExitSpectate();
+    }
 }
