@@ -295,7 +295,7 @@ public class UIButtonHandleRoom : MonoBehaviour
     public void ExitRoom()
     {
         GameManger.instance.SendExitRoom();
-        SceneManger.instance.SwitchScene("房间");
+        SceneManger.instance.SwitchScene("Room");
     }
 
     //退出到主界面
@@ -303,8 +303,7 @@ public class UIButtonHandleRoom : MonoBehaviour
     {
         GameManger.instance.SendExitRoom();
         GameManger.instance.Finally();
-        GameManger.instance.Destroy();
-        SceneManger.instance.SwitchScene("主界面");
+        SceneManger.instance.SwitchScene("Logic");
     }
 
     private void JoinRoom(int Id)    //加入房间后具体ui操作代码
